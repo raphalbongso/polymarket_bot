@@ -3,6 +3,7 @@ import time
 
 from config.settings import Settings
 from config.client_factory import create_clob_client
+from bot.paper_trader import PaperTrader
 from data.market_fetcher import MarketFetcher
 from data.orderbook_tracker import OrderbookTracker
 from data.price_history import PriceHistory
@@ -32,6 +33,16 @@ class Orchestrator:
         self._whale_tracker = WhaleTracker(settings)
         self._risk_manager = RiskManager(settings)
         self._zmq_publisher = ZMQPublisher(settings.zmq_pub_port)
+
+        # Paper trader (only for paper mode)
+        self._paper_trader = None
+        if settings.trading_mode == "paper":
+            self._paper_trader = PaperTrader(
+                balance=settings.paper_balance,
+                slippage_bps=settings.paper_slippage_bps,
+                order_ttl=settings.paper_order_ttl_seconds,
+            )
+            self._risk_manager.set_balance(settings.paper_balance)
 
         self._strategies = []
         self._register_default_strategies()
@@ -71,8 +82,8 @@ class Orchestrator:
             books[token_id] = self._orderbook_tracker.fetch_orderbook(token_id)
         return books
 
-    def _execute_signal(self, signal, size_usd):
-        """Execute a trading signal. Respects DRY_RUN mode."""
+    def _execute_signal(self, signal, size_usd, orderbook=None):
+        """Execute a trading signal. Three-way branch: dry_run / paper / live."""
         trade_info = {
             "strategy": signal.strategy_name,
             "market": signal.market_condition_id,
@@ -81,22 +92,44 @@ class Orchestrator:
             "price": signal.suggested_price,
             "size_usd": round(size_usd, 2),
             "confidence": round(signal.confidence, 3),
-            "dry_run": self._settings.dry_run,
+            "mode": self._settings.trading_mode,
         }
 
-        if self._settings.dry_run:
+        mode = self._settings.trading_mode
+
+        # --- DRY RUN: log only ---
+        if mode == "dry_run":
             logger.info(f"[DRY RUN] Would {signal.side} ${size_usd:.2f} at {signal.suggested_price:.4f}",
                         extra={"extra_data": trade_info})
             self._zmq_publisher.publish("trade", trade_info)
             return
 
-        # LIVE TRADING
+        # --- PAPER TRADING: simulate against real orderbook ---
+        if mode == "paper":
+            ob = orderbook or {"bids": [], "asks": []}
+            fill = self._paper_trader.execute(signal, size_usd, ob)
+            trade_info["fill_status"] = fill.status
+            trade_info["filled_qty"] = round(fill.filled_qty, 4)
+            trade_info["avg_fill_price"] = round(fill.avg_fill_price, 4)
+            trade_info["slippage_bps"] = round(fill.slippage_bps, 1)
+            trade_info["realized_pnl"] = round(fill.realized_pnl, 4)
+            self._zmq_publisher.publish("trade", trade_info)
+
+            if fill.realized_pnl != 0:
+                self._risk_manager.record_trade({
+                    "pnl": fill.realized_pnl,
+                    "side": signal.side,
+                    "size": size_usd,
+                    "price": fill.avg_fill_price,
+                })
+            return
+
+        # --- LIVE TRADING ---
         if self._clob_client is None:
             logger.error("Cannot trade: CLOB client not available")
             return
 
         try:
-            # Build and post order via py-clob-client
             order_args = {
                 "token_id": signal.token_id,
                 "price": signal.suggested_price,
@@ -110,15 +143,13 @@ class Orchestrator:
             logger.info(f"Order placed: {result}", extra={"extra_data": trade_info})
             self._zmq_publisher.publish("trade", trade_info)
 
-            # Record for risk management (assume filled at suggested price)
             self._risk_manager.record_trade({
-                "pnl": 0.0,  # PnL unknown until resolution
+                "pnl": 0.0,
                 "side": signal.side,
                 "size": size_usd,
                 "price": signal.suggested_price,
             })
 
-            # Update market making inventory if applicable
             if signal.strategy_name == "market_making":
                 for s in self._strategies:
                     if hasattr(s, "update_inventory"):
@@ -130,8 +161,14 @@ class Orchestrator:
 
     def run(self):
         """Main event loop."""
+        mode_info = f"mode={self._settings.trading_mode}"
+        if self._settings.trading_mode == "paper":
+            mode_info += (
+                f" balance=${self._settings.paper_balance:.0f}"
+                f" slippage={self._settings.paper_slippage_bps}bps"
+            )
         logger.info(
-            f"Bot started | DRY_RUN={self._settings.dry_run} | "
+            f"Bot started | {mode_info} | "
             f"Strategies: {[s.name for s in self._strategies if s.is_enabled]} | "
             f"Tick interval: {self._settings.tick_interval_seconds}s"
         )
@@ -198,14 +235,23 @@ class Orchestrator:
                     # Risk check and sizing
                     size = self._risk_manager.calculate_position_size(signal)
                     if size > 0:
-                        self._execute_signal(signal, size)
+                        ob = orderbooks.get(signal.token_id)
+                        self._execute_signal(signal, size, orderbook=ob)
+
+        # Check resting paper orders each tick
+        if self._paper_trader and orderbooks:
+            self._paper_trader.check_resting_orders(orderbooks)
 
         # Heartbeat
-        self._zmq_publisher.publish("heartbeat", {
+        heartbeat = {
             "tick": self._tick_count,
             "timestamp": time.time(),
             "risk": self._risk_manager.get_risk_report(),
-        })
+        }
+        if self._paper_trader:
+            heartbeat["paper"] = self._paper_trader.get_position_summary()
+
+        self._zmq_publisher.publish("heartbeat", heartbeat)
 
     def start(self):
         """Start the bot."""
@@ -217,12 +263,16 @@ class Orchestrator:
         logger.info("Shutdown requested")
 
         # Cancel open orders if live
-        if not self._settings.dry_run and self._clob_client:
+        if self._settings.trading_mode == "live" and self._clob_client:
             try:
                 self._clob_client.cancel_all()
                 logger.info("Cancelled all open orders")
             except Exception as e:
                 logger.error(f"Failed to cancel orders: {e}")
+
+        # Paper trading final report
+        if self._paper_trader:
+            logger.info(self._paper_trader.get_final_report())
 
         self._zmq_publisher.close()
         logger.info(f"Final risk report: {self._risk_manager.get_risk_report()}")

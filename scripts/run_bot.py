@@ -22,13 +22,24 @@ def main():
     settings = load_settings()
     setup_logger(level=settings.log_level)
 
+    mode_labels = {
+        "dry_run": "DRY RUN (log only, no trades)",
+        "paper": "PAPER TRADING (simulated fills against live data)",
+        "live": "LIVE TRADING",
+    }
+    mode_label = mode_labels.get(settings.trading_mode, settings.trading_mode)
+
     print("=" * 60)
     print("  POLYMARKET TRADING BOT")
-    print(f"  Mode: {'DRY RUN (no real trades)' if settings.dry_run else 'LIVE TRADING'}")
+    print(f"  Mode: {mode_label}")
+    if settings.trading_mode == "paper":
+        print(f"  Paper balance: ${settings.paper_balance:.2f}")
+        print(f"  Slippage: {settings.paper_slippage_bps} bps")
+        print(f"  Order TTL: {settings.paper_order_ttl_seconds}s")
     print(f"  Log level: {settings.log_level}")
     print("=" * 60)
 
-    if not settings.dry_run:
+    if settings.trading_mode == "live":
         print("\n  WARNING: LIVE TRADING MODE ENABLED")
         print("  Real orders will be placed on Polymarket.\n")
 

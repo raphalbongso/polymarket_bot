@@ -42,6 +42,54 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(settings.news_api_key, "")
             self.assertEqual(settings.openai_api_key, "")
 
+    def test_trading_mode_defaults_to_dry_run(self):
+        """Without TRADING_MODE or DRY_RUN, trading_mode is 'dry_run'."""
+        with patch.dict(os.environ, {}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.trading_mode, "dry_run")
+            self.assertTrue(settings.dry_run)
+
+    def test_trading_mode_paper(self):
+        """TRADING_MODE=paper sets paper mode and dry_run=True."""
+        with patch.dict(os.environ, {"TRADING_MODE": "paper"}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.trading_mode, "paper")
+            self.assertTrue(settings.dry_run)
+
+    def test_trading_mode_live(self):
+        """TRADING_MODE=live sets live mode and dry_run=False."""
+        with patch.dict(os.environ, {"TRADING_MODE": "live"}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.trading_mode, "live")
+            self.assertFalse(settings.dry_run)
+
+    def test_trading_mode_invalid_raises(self):
+        """Invalid TRADING_MODE raises ValueError."""
+        with patch.dict(os.environ, {"TRADING_MODE": "yolo"}, clear=True):
+            with self.assertRaises(ValueError):
+                load_settings()
+
+    def test_dry_run_backward_compat(self):
+        """DRY_RUN=false without TRADING_MODE sets trading_mode='live'."""
+        with patch.dict(os.environ, {"DRY_RUN": "false"}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.trading_mode, "live")
+            self.assertFalse(settings.dry_run)
+
+    def test_paper_settings_loaded(self):
+        """Paper trading settings are loaded from environment."""
+        env = {
+            "TRADING_MODE": "paper",
+            "PAPER_BALANCE": "5000.0",
+            "PAPER_SLIPPAGE_BPS": "10.0",
+            "PAPER_ORDER_TTL_SECONDS": "600",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.paper_balance, 5000.0)
+            self.assertEqual(settings.paper_slippage_bps, 10.0)
+            self.assertEqual(settings.paper_order_ttl_seconds, 600.0)
+
 
 if __name__ == "__main__":
     unittest.main()
