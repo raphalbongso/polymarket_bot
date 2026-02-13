@@ -12,8 +12,8 @@ logger = get_logger("market_fetcher")
 
 # Interval in seconds for recurring time-based market slugs (e.g. btc-updown-15m)
 _RECURRING_INTERVAL = 900  # 15 minutes
-# How many recent windows to probe when searching for active markets
-_PROBE_WINDOWS = 4
+# How many windows to probe in each direction (forward + backward)
+_PROBE_WINDOWS = 2
 
 
 class MarketFetcher:
@@ -60,15 +60,17 @@ class MarketFetcher:
     def _fetch_recurring_markets(self, prefix):
         """Fetch current active market(s) for a recurring time-based slug prefix.
 
-        For prefixes like 'btc-updown-15m', probes recent 15-minute windows
-        by computing timestamps and fetching by exact slug.
+        For prefixes like 'btc-updown-15m', probes nearby 15-minute windows
+        (current, past, and upcoming) by computing timestamps and fetching by exact slug.
         """
         markets = []
         now = int(time.time())
         base_ts = (now // _RECURRING_INTERVAL) * _RECURRING_INTERVAL
 
-        for i in range(_PROBE_WINDOWS):
-            ts = base_ts - (i * _RECURRING_INTERVAL)
+        # Probe upcoming windows first, then current and recent
+        offsets = list(range(1, _PROBE_WINDOWS)) + [0] + list(range(-1, -_PROBE_WINDOWS, -1))
+        for i in offsets:
+            ts = base_ts + (i * _RECURRING_INTERVAL)
             slug = f"{prefix}-{ts}"
             try:
                 resp = self._session.get(

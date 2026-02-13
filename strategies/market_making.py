@@ -8,7 +8,7 @@ class MarketMakingStrategy(BaseStrategy):
 
     def __init__(self, settings: Settings):
         super().__init__(settings, name="market_making")
-        self._min_spread = 0.02
+        self._min_spread = 0.005
         self._inventory = {}  # token_id -> net position
         self._max_inventory = 100.0
         self._skew_factor = 0.5
@@ -53,7 +53,9 @@ class MarketMakingStrategy(BaseStrategy):
         bid_price = max(0.01, min(0.99, bid_price))
         ask_price = max(0.01, min(0.99, ask_price))
 
-        confidence = min(0.8, current_spread / 0.05)
+        # Base confidence of 0.55 (market makers earn spread more often than not),
+        # boosted by wider spreads up to 0.85
+        confidence = 0.55 + 0.30 * min(1.0, current_spread / 0.05)
 
         # BUY side (if not over-long)
         if inventory < self._max_inventory:

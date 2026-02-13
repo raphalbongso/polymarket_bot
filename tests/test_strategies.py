@@ -119,7 +119,7 @@ class TestMarketMakingStrategy(unittest.TestCase):
         strategy = MarketMakingStrategy(_make_settings())
         market = _make_market()
         orderbook = {
-            "tok_yes": {"bids": [(0.500, 100)], "asks": [(0.505, 100)]},
+            "tok_yes": {"bids": [(0.500, 100)], "asks": [(0.502, 100)]},
         }
         ph = _make_price_history()
 
