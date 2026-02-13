@@ -1,0 +1,233 @@
+"""Main orchestrator — ties all components together in the event loop."""
+import time
+
+from config.settings import Settings
+from config.client_factory import create_clob_client
+from data.market_fetcher import MarketFetcher
+from data.orderbook_tracker import OrderbookTracker
+from data.price_history import PriceHistory
+from data.whale_tracker import WhaleTracker
+from monitoring.logger import get_logger
+from monitoring.zmq_publisher import ZMQPublisher
+from risk.risk_manager import RiskManager
+from strategies.arbitrage import ArbitrageStrategy
+from strategies.market_making import MarketMakingStrategy
+from strategies.news_driven import NewsDrivenStrategy
+from strategies.whale_following import WhaleFollowingStrategy
+
+logger = get_logger("orchestrator")
+
+
+class Orchestrator:
+    """Main event loop — fetches data, evaluates strategies, executes trades."""
+
+    def __init__(self, settings: Settings):
+        self._settings = settings
+
+        # Build dependency graph
+        self._clob_client = create_clob_client(settings)
+        self._market_fetcher = MarketFetcher(settings)
+        self._orderbook_tracker = OrderbookTracker(self._clob_client, settings)
+        self._price_history = PriceHistory(settings)
+        self._whale_tracker = WhaleTracker(settings)
+        self._risk_manager = RiskManager(settings)
+        self._zmq_publisher = ZMQPublisher(settings.zmq_pub_port)
+
+        self._strategies = []
+        self._register_default_strategies()
+
+        self._running = False
+        self._tick_count = 0
+
+    def _register_default_strategies(self):
+        """Register the four default strategies with graceful degradation."""
+        self._strategies.append(ArbitrageStrategy(self._settings))
+        self._strategies.append(MarketMakingStrategy(self._settings))
+
+        try:
+            self._strategies.append(NewsDrivenStrategy(self._settings))
+        except Exception as e:
+            logger.warning(f"News strategy unavailable: {e}")
+
+        try:
+            self._strategies.append(
+                WhaleFollowingStrategy(self._settings, self._whale_tracker)
+            )
+        except Exception as e:
+            logger.warning(f"Whale strategy unavailable: {e}")
+
+    def _get_required_data_types(self):
+        """Union of all enabled strategies' data requirements."""
+        required = set()
+        for s in self._strategies:
+            if s.is_enabled:
+                required.update(s.get_required_data())
+        return required
+
+    def _fetch_orderbooks(self, market):
+        """Fetch orderbooks for all tokens in a market."""
+        books = {}
+        for token_id in market.get("tokens", []):
+            books[token_id] = self._orderbook_tracker.fetch_orderbook(token_id)
+        return books
+
+    def _execute_signal(self, signal, size_usd):
+        """Execute a trading signal. Respects DRY_RUN mode."""
+        trade_info = {
+            "strategy": signal.strategy_name,
+            "market": signal.market_condition_id,
+            "token": signal.token_id[:16] + "...",
+            "side": signal.side,
+            "price": signal.suggested_price,
+            "size_usd": round(size_usd, 2),
+            "confidence": round(signal.confidence, 3),
+            "dry_run": self._settings.dry_run,
+        }
+
+        if self._settings.dry_run:
+            logger.info(f"[DRY RUN] Would {signal.side} ${size_usd:.2f} at {signal.suggested_price:.4f}",
+                        extra={"extra_data": trade_info})
+            self._zmq_publisher.publish("trade", trade_info)
+            return
+
+        # LIVE TRADING
+        if self._clob_client is None:
+            logger.error("Cannot trade: CLOB client not available")
+            return
+
+        try:
+            # Build and post order via py-clob-client
+            order_args = {
+                "token_id": signal.token_id,
+                "price": signal.suggested_price,
+                "size": size_usd / signal.suggested_price,
+                "side": signal.side,
+            }
+
+            signed_order = self._clob_client.create_order(order_args)
+            result = self._clob_client.post_order(signed_order)
+
+            logger.info(f"Order placed: {result}", extra={"extra_data": trade_info})
+            self._zmq_publisher.publish("trade", trade_info)
+
+            # Record for risk management (assume filled at suggested price)
+            self._risk_manager.record_trade({
+                "pnl": 0.0,  # PnL unknown until resolution
+                "side": signal.side,
+                "size": size_usd,
+                "price": signal.suggested_price,
+            })
+
+            # Update market making inventory if applicable
+            if signal.strategy_name == "market_making":
+                for s in self._strategies:
+                    if hasattr(s, "update_inventory"):
+                        delta = size_usd if signal.side == "BUY" else -size_usd
+                        s.update_inventory(signal.token_id, delta)
+
+        except Exception as e:
+            logger.error(f"Order failed: {e}", extra={"extra_data": trade_info})
+
+    def run(self):
+        """Main event loop."""
+        logger.info(
+            f"Bot started | DRY_RUN={self._settings.dry_run} | "
+            f"Strategies: {[s.name for s in self._strategies if s.is_enabled]} | "
+            f"Tick interval: {self._settings.tick_interval_seconds}s"
+        )
+
+        self._running = True
+        required_data = self._get_required_data_types()
+
+        while self._running and not self._risk_manager.is_killed:
+            try:
+                self._tick(required_data)
+            except Exception as e:
+                logger.error(f"Tick error: {e}")
+
+            self._tick_count += 1
+            time.sleep(self._settings.tick_interval_seconds)
+
+        reason = "kill switch" if self._risk_manager.is_killed else "stopped"
+        logger.info(f"Bot stopped: {reason} after {self._tick_count} ticks")
+
+    def _tick(self, required_data):
+        """Execute one tick of the main loop."""
+        # Refresh markets periodically (every 30 ticks)
+        if self._tick_count % 30 == 0:
+            self._market_fetcher.refresh()
+
+        markets = self._market_fetcher.get_active_markets()
+
+        # Fetch whale data if needed
+        if "whale_trades" in required_data:
+            self._whale_tracker.check_all_wallets()
+
+        for market in markets[:20]:  # Limit to top 20 markets
+            orderbooks = {}
+            if "orderbook" in required_data:
+                orderbooks = self._fetch_orderbooks(market)
+
+                # Record midpoints in price history
+                for token_id in market.get("tokens", []):
+                    mid = self._orderbook_tracker.get_midpoint(token_id)
+                    if mid is not None:
+                        self._price_history.record(token_id, mid)
+
+            # Evaluate each strategy
+            for strategy in self._strategies:
+                if not strategy.is_enabled:
+                    continue
+
+                try:
+                    signals = strategy.evaluate(
+                        market, orderbooks, self._price_history
+                    )
+                except Exception as e:
+                    logger.warning(f"Strategy {strategy.name} error: {e}")
+                    continue
+
+                for signal in signals:
+                    self._zmq_publisher.publish("signal", {
+                        "strategy": signal.strategy_name,
+                        "market": signal.market_condition_id,
+                        "side": signal.side,
+                        "confidence": signal.confidence,
+                    })
+
+                    # Risk check and sizing
+                    size = self._risk_manager.calculate_position_size(signal)
+                    if size > 0:
+                        self._execute_signal(signal, size)
+
+        # Heartbeat
+        self._zmq_publisher.publish("heartbeat", {
+            "tick": self._tick_count,
+            "timestamp": time.time(),
+            "risk": self._risk_manager.get_risk_report(),
+        })
+
+    def start(self):
+        """Start the bot."""
+        self.run()
+
+    def stop(self):
+        """Gracefully stop the bot."""
+        self._running = False
+        logger.info("Shutdown requested")
+
+        # Cancel open orders if live
+        if not self._settings.dry_run and self._clob_client:
+            try:
+                self._clob_client.cancel_all()
+                logger.info("Cancelled all open orders")
+            except Exception as e:
+                logger.error(f"Failed to cancel orders: {e}")
+
+        self._zmq_publisher.close()
+        logger.info(f"Final risk report: {self._risk_manager.get_risk_report()}")
+
+    def add_strategy(self, strategy):
+        """Register an additional strategy at runtime."""
+        self._strategies.append(strategy)
+        logger.info(f"Added strategy: {strategy.name}")
