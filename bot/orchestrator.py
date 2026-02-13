@@ -51,6 +51,11 @@ class Orchestrator:
             )
             self._risk_manager.set_balance(settings.paper_balance)
 
+        # Parse slug filter prefixes
+        self._slug_prefixes = tuple(
+            p.strip() for p in settings.market_slug_filter.split(",") if p.strip()
+        )
+
         self._strategies = []
         self._register_default_strategies()
 
@@ -189,10 +194,11 @@ class Orchestrator:
                 f" balance=${self._settings.paper_balance:.0f}"
                 f" slippage={self._settings.paper_slippage_bps}bps"
             )
+        filter_info = f" | Filter: {', '.join(self._slug_prefixes)}" if self._slug_prefixes else ""
         logger.info(
             f"Bot started | {mode_info} | "
             f"Strategies: {[s.name for s in self._strategies if s.is_enabled]} | "
-            f"Tick interval: {self._settings.tick_interval_seconds}s"
+            f"Tick interval: {self._settings.tick_interval_seconds}s{filter_info}"
         )
 
         self._running = True
@@ -218,12 +224,24 @@ class Orchestrator:
 
         markets = self._market_fetcher.get_active_markets()
 
+        # Apply slug filter if configured
+        if self._slug_prefixes:
+            markets = [
+                m for m in markets
+                if any(m["slug"].startswith(p) for p in self._slug_prefixes)
+            ]
+            if self._tick_count == 0:
+                logger.info(
+                    f"Slug filter active ({', '.join(self._slug_prefixes)}): "
+                    f"{len(markets)} matching markets"
+                )
+
         # Fetch whale data if needed
         if "whale_trades" in required_data:
             self._whale_tracker.check_all_wallets()
 
+        orderbooks = {}
         for market in markets[:20]:  # Limit to top 20 markets
-            orderbooks = {}
             if "orderbook" in required_data:
                 orderbooks = self._fetch_orderbooks(market)
 

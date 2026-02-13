@@ -117,6 +117,19 @@ class TestSettings(unittest.TestCase):
             settings = load_settings()
             self.assertEqual(settings.funder_address, addr)
 
+    @patch("config.settings.load_dotenv")
+    def test_market_slug_filter_default_empty(self, _mock_dotenv):
+        """MARKET_SLUG_FILTER defaults to empty string."""
+        with patch.dict(os.environ, {}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.market_slug_filter, "")
+
+    def test_market_slug_filter_loaded_from_env(self):
+        """MARKET_SLUG_FILTER is loaded from environment."""
+        with patch.dict(os.environ, {"MARKET_SLUG_FILTER": "btc-updown-15m"}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.market_slug_filter, "btc-updown-15m")
+
 
 if __name__ == "__main__":
     unittest.main()

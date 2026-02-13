@@ -22,6 +22,9 @@ class Settings:
     signature_type: int = 0   # 0=EOA, 1=Magic, 2=Browser
     funder_address: str = ""
 
+    # Market filter (comma-separated slug prefixes, empty = all markets)
+    market_slug_filter: str = ""
+
     # Bot behavior
     trading_mode: str = "dry_run"  # "dry_run" | "paper" | "live"
     dry_run: bool = True           # True for dry_run and paper; False only for live
@@ -88,6 +91,7 @@ def load_settings() -> Settings:
         chain_id=int(os.getenv("CHAIN_ID", "137")),
         signature_type=int(os.getenv("SIGNATURE_TYPE", "0")),
         funder_address=os.getenv("FUNDER_ADDRESS", ""),
+        market_slug_filter=os.getenv("MARKET_SLUG_FILTER", ""),
         trading_mode=trading_mode,
         dry_run=dry_run,
         log_level=os.getenv("LOG_LEVEL", "INFO"),
