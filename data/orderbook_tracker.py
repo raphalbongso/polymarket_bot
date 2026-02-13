@@ -30,14 +30,17 @@ class OrderbookTracker:
 
             raw = self._client.get_order_book(token_id)
 
-            bids = [
-                (float(o.get("price", 0)), float(o.get("size", 0)))
-                for o in raw.get("bids", [])
-            ]
-            asks = [
-                (float(o.get("price", 0)), float(o.get("size", 0)))
-                for o in raw.get("asks", [])
-            ]
+            # Handle both dict responses and typed OrderBookSummary objects
+            raw_bids = raw.get("bids", []) if isinstance(raw, dict) else getattr(raw, "bids", [])
+            raw_asks = raw.get("asks", []) if isinstance(raw, dict) else getattr(raw, "asks", [])
+
+            def _parse_level(o):
+                if isinstance(o, dict):
+                    return (float(o.get("price", 0)), float(o.get("size", 0)))
+                return (float(getattr(o, "price", 0)), float(getattr(o, "size", 0)))
+
+            bids = [_parse_level(o) for o in raw_bids]
+            asks = [_parse_level(o) for o in raw_asks]
 
             # Sort: bids descending, asks ascending
             bids.sort(key=lambda x: x[0], reverse=True)
