@@ -15,6 +15,8 @@ class OrderbookTracker:
         self._client = clob_client
         self._books = {}  # token_id -> deque of snapshots
         self._maxlen = settings.orderbook_history_maxlen
+        self._tick_sizes = {}   # token_id -> str
+        self._neg_risks = {}    # token_id -> bool
 
     def fetch_orderbook(self, token_id):
         """Fetch current orderbook for a token.
@@ -29,6 +31,15 @@ class OrderbookTracker:
                 return {"bids": [], "asks": [], "timestamp": time.time()}
 
             raw = self._client.get_order_book(token_id)
+
+            # Extract tick_size and neg_risk from OrderBookSummary
+            tick_size = raw.get("tick_size") if isinstance(raw, dict) else getattr(raw, "tick_size", None)
+            neg_risk = raw.get("neg_risk") if isinstance(raw, dict) else getattr(raw, "neg_risk", None)
+
+            if tick_size is not None:
+                self._tick_sizes[token_id] = str(tick_size)
+            if neg_risk is not None:
+                self._neg_risks[token_id] = bool(neg_risk)
 
             # Handle both dict responses and typed OrderBookSummary objects
             raw_bids = raw.get("bids", []) if isinstance(raw, dict) else getattr(raw, "bids", [])
@@ -57,6 +68,14 @@ class OrderbookTracker:
         except Exception as e:
             logger.warning(f"Failed to fetch orderbook for {token_id[:8]}...: {e}")
             return {"bids": [], "asks": [], "timestamp": time.time()}
+
+    def get_tick_size(self, token_id):
+        """Return cached tick_size for a token, or None if unknown."""
+        return self._tick_sizes.get(token_id)
+
+    def get_neg_risk(self, token_id):
+        """Return cached neg_risk for a token, or None if unknown."""
+        return self._neg_risks.get(token_id)
 
     def get_best_bid(self, token_id):
         """Return highest bid price, or None if empty."""

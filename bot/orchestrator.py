@@ -3,6 +3,13 @@ import time
 
 from config.settings import Settings
 from config.client_factory import create_clob_client
+
+try:
+    from py_clob_client.clob_types import OrderArgs, PartialCreateOrderOptions
+    from py_clob_client.order_builder.constants import BUY, SELL
+    HAS_ORDER_TYPES = True
+except ImportError:
+    HAS_ORDER_TYPES = False
 from bot.paper_trader import PaperTrader
 from data.market_fetcher import MarketFetcher
 from data.orderbook_tracker import OrderbookTracker
@@ -129,16 +136,31 @@ class Orchestrator:
             logger.error("Cannot trade: CLOB client not available")
             return
 
-        try:
-            order_args = {
-                "token_id": signal.token_id,
-                "price": signal.suggested_price,
-                "size": size_usd / signal.suggested_price,
-                "side": signal.side,
-            }
+        if not HAS_ORDER_TYPES:
+            logger.error("Cannot trade: py_clob_client order types not available")
+            return
 
-            signed_order = self._clob_client.create_order(order_args)
-            result = self._clob_client.post_order(signed_order)
+        try:
+            tick_size = self._orderbook_tracker.get_tick_size(signal.token_id)
+            neg_risk = self._orderbook_tracker.get_neg_risk(signal.token_id)
+
+            if tick_size is None:
+                logger.error(f"Cannot trade: tick_size unknown for {signal.token_id[:16]}...")
+                return
+
+            order_args = OrderArgs(
+                token_id=signal.token_id,
+                price=signal.suggested_price,
+                size=size_usd / signal.suggested_price,
+                side=BUY if signal.side == "BUY" else SELL,
+            )
+            result = self._clob_client.create_and_post_order(
+                order_args,
+                options=PartialCreateOrderOptions(
+                    tick_size=tick_size,
+                    neg_risk=neg_risk if neg_risk is not None else False,
+                ),
+            )
 
             logger.info(f"Order placed: {result}", extra={"extra_data": trade_info})
             self._zmq_publisher.publish("trade", trade_info)

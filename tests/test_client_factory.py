@@ -18,7 +18,7 @@ class TestClientFactory(unittest.TestCase):
     @patch("config.client_factory.HAS_CLOB", True)
     @patch("config.client_factory.ClobClient", create=True)
     def test_create_client_with_api_creds(self, MockClob):
-        """When api_key/secret/passphrase are set, they are applied."""
+        """When api_key/secret/passphrase are set, creds are passed to constructor."""
         from config.client_factory import create_clob_client
         mock_instance = MagicMock()
         MockClob.return_value = mock_instance
@@ -31,7 +31,13 @@ class TestClientFactory(unittest.TestCase):
         )
         client = create_clob_client(settings)
         self.assertIsNotNone(client)
-        mock_instance.set_api_creds.assert_called_once()
+        # Creds are now passed directly to constructor, not via set_api_creds
+        call_kwargs = MockClob.call_args[1]
+        self.assertEqual(call_kwargs["creds"]["apiKey"], "key123")
+        self.assertEqual(call_kwargs["creds"]["secret"], "secret123")
+        self.assertEqual(call_kwargs["creds"]["passphrase"], "pass123")
+        # set_api_creds should NOT be called when explicit creds are provided
+        mock_instance.set_api_creds.assert_not_called()
 
     @patch("config.client_factory.HAS_CLOB", True)
     @patch("config.client_factory.ClobClient", create=True)

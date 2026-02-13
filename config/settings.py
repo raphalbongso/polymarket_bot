@@ -19,6 +19,8 @@ class Settings:
     gamma_url: str = "https://gamma-api.polymarket.com"
     data_api_url: str = "https://data-api.polymarket.com"
     ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    signature_type: int = 0   # 0=EOA, 1=Magic, 2=Browser
+    funder_address: str = ""
 
     # Bot behavior
     trading_mode: str = "dry_run"  # "dry_run" | "paper" | "live"
@@ -84,6 +86,8 @@ def load_settings() -> Settings:
         api_secret=os.getenv("POLYMARKET_API_SECRET", ""),
         passphrase=os.getenv("POLYMARKET_PASSPHRASE", ""),
         chain_id=int(os.getenv("CHAIN_ID", "137")),
+        signature_type=int(os.getenv("SIGNATURE_TYPE", "0")),
+        funder_address=os.getenv("FUNDER_ADDRESS", ""),
         trading_mode=trading_mode,
         dry_run=dry_run,
         log_level=os.getenv("LOG_LEVEL", "INFO"),

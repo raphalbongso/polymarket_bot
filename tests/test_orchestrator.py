@@ -63,6 +63,72 @@ class TestOrchestrator(unittest.TestCase):
         if news:
             self.assertFalse(news[0].is_enabled)
 
+    @patch("bot.orchestrator.create_clob_client")
+    @patch("bot.orchestrator.ZMQPublisher")
+    def test_live_trading_uses_create_and_post_order(self, MockZMQ, mock_create_client):
+        """Live mode uses create_and_post_order with OrderArgs and options."""
+        mock_clob = MagicMock()
+        mock_clob.create_and_post_order.return_value = {"orderID": "abc123"}
+        mock_create_client.return_value = mock_clob
+
+        settings = Settings(trading_mode="live", dry_run=False)
+        orch = Orchestrator(settings)
+
+        # Seed tick_size and neg_risk in the orderbook tracker
+        orch._orderbook_tracker._tick_sizes["tok1"] = "0.01"
+        orch._orderbook_tracker._neg_risks["tok1"] = False
+
+        from strategies.base import Signal
+        signal = Signal(
+            strategy_name="test",
+            market_condition_id="cond1",
+            token_id="tok1",
+            side="BUY",
+            confidence=0.8,
+            raw_edge=0.1,
+            suggested_price=0.50,
+            max_size=100.0,
+        )
+        orch._execute_signal(signal, 25.0)
+
+        # Verify create_and_post_order was called (not create_order + post_order)
+        mock_clob.create_and_post_order.assert_called_once()
+        args, kwargs = mock_clob.create_and_post_order.call_args
+        order_args = args[0]
+        self.assertEqual(order_args.token_id, "tok1")
+        self.assertAlmostEqual(order_args.price, 0.50)
+        self.assertAlmostEqual(order_args.size, 50.0)  # 25 / 0.50
+
+        options = kwargs["options"]
+        self.assertEqual(options.tick_size, "0.01")
+        self.assertFalse(options.neg_risk)
+
+    @patch("bot.orchestrator.create_clob_client")
+    @patch("bot.orchestrator.ZMQPublisher")
+    def test_live_trading_skips_without_tick_size(self, MockZMQ, mock_create_client):
+        """Live mode refuses to trade when tick_size is unknown."""
+        mock_clob = MagicMock()
+        mock_create_client.return_value = mock_clob
+
+        settings = Settings(trading_mode="live", dry_run=False)
+        orch = Orchestrator(settings)
+
+        from strategies.base import Signal
+        signal = Signal(
+            strategy_name="test",
+            market_condition_id="cond1",
+            token_id="tok_unknown",
+            side="BUY",
+            confidence=0.8,
+            raw_edge=0.1,
+            suggested_price=0.50,
+            max_size=100.0,
+        )
+        orch._execute_signal(signal, 25.0)
+
+        # Should NOT have attempted to place an order
+        mock_clob.create_and_post_order.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

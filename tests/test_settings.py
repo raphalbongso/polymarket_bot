@@ -42,7 +42,8 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(settings.news_api_key, "")
             self.assertEqual(settings.openai_api_key, "")
 
-    def test_trading_mode_defaults_to_dry_run(self):
+    @patch("config.settings.load_dotenv")
+    def test_trading_mode_defaults_to_dry_run(self, _mock_dotenv):
         """Without TRADING_MODE or DRY_RUN, trading_mode is 'dry_run'."""
         with patch.dict(os.environ, {}, clear=True):
             settings = load_settings()
@@ -69,7 +70,8 @@ class TestSettings(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_settings()
 
-    def test_dry_run_backward_compat(self):
+    @patch("config.settings.load_dotenv")
+    def test_dry_run_backward_compat(self, _mock_dotenv):
         """DRY_RUN=false without TRADING_MODE sets trading_mode='live'."""
         with patch.dict(os.environ, {"DRY_RUN": "false"}, clear=True):
             settings = load_settings()
@@ -89,6 +91,31 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(settings.paper_balance, 5000.0)
             self.assertEqual(settings.paper_slippage_bps, 10.0)
             self.assertEqual(settings.paper_order_ttl_seconds, 600.0)
+
+    def test_signature_type_default(self):
+        """SIGNATURE_TYPE defaults to 0 (EOA)."""
+        with patch.dict(os.environ, {}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.signature_type, 0)
+
+    def test_signature_type_loaded_from_env(self):
+        """SIGNATURE_TYPE is loaded from environment."""
+        with patch.dict(os.environ, {"SIGNATURE_TYPE": "2"}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.signature_type, 2)
+
+    def test_funder_address_default(self):
+        """FUNDER_ADDRESS defaults to empty string."""
+        with patch.dict(os.environ, {}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.funder_address, "")
+
+    def test_funder_address_loaded_from_env(self):
+        """FUNDER_ADDRESS is loaded from environment."""
+        addr = "0x1234567890abcdef1234567890abcdef12345678"
+        with patch.dict(os.environ, {"FUNDER_ADDRESS": addr}, clear=True):
+            settings = load_settings()
+            self.assertEqual(settings.funder_address, addr)
 
 
 if __name__ == "__main__":
