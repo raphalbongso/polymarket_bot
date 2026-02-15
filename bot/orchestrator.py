@@ -1,11 +1,12 @@
 """Main orchestrator — ties all components together in the event loop."""
 import time
+from datetime import datetime, timezone
 
 from config.settings import Settings
-from config.client_factory import create_clob_client
+from config.client_factory import create_clob_client, fetch_usdc_balance
 
 try:
-    from py_clob_client.clob_types import OrderArgs, PartialCreateOrderOptions
+    from py_clob_client.clob_types import OrderArgs, MarketOrderArgs, OrderType
     from py_clob_client.order_builder.constants import BUY, SELL
     HAS_ORDER_TYPES = True
 except ImportError:
@@ -13,12 +14,15 @@ except ImportError:
 from bot.paper_trader import PaperTrader
 from data.market_fetcher import MarketFetcher
 from data.orderbook_tracker import OrderbookTracker
+from data.order_tracker import OrderTracker
+from data.position_tracker import PositionTracker
 from data.price_history import PriceHistory
 from data.whale_tracker import WhaleTracker
 from monitoring.logger import get_logger
 from monitoring.zmq_publisher import ZMQPublisher
 from risk.risk_manager import RiskManager
 from strategies.arbitrage import ArbitrageStrategy
+from strategies.high_confidence import HighConfidenceStrategy
 from strategies.market_making import MarketMakingStrategy
 from strategies.news_driven import NewsDrivenStrategy
 from strategies.whale_following import WhaleFollowingStrategy
@@ -41,6 +45,13 @@ class Orchestrator:
         self._risk_manager = RiskManager(settings)
         self._zmq_publisher = ZMQPublisher(settings.zmq_pub_port)
 
+        # Order and position trackers
+        self._order_tracker = OrderTracker(
+            self._clob_client,
+            stale_seconds=settings.stale_order_seconds,
+        )
+        self._position_tracker = PositionTracker(settings)
+
         # Paper trader (only for paper mode)
         self._paper_trader = None
         if settings.trading_mode == "paper":
@@ -50,6 +61,15 @@ class Orchestrator:
                 order_ttl=settings.paper_order_ttl_seconds,
             )
             self._risk_manager.set_balance(settings.paper_balance)
+
+        # Sync real balance for live mode
+        if settings.trading_mode == "live" and self._clob_client:
+            real_balance = fetch_usdc_balance(self._clob_client)
+            if real_balance is not None:
+                self._risk_manager.set_balance(real_balance)
+                logger.info(f"Live USDC balance: ${real_balance:.2f}")
+            else:
+                logger.warning("Could not fetch live balance")
 
         # Parse slug filter prefixes
         self._slug_prefixes = tuple(
@@ -65,6 +85,7 @@ class Orchestrator:
     def _register_default_strategies(self):
         """Register the four default strategies with graceful degradation."""
         self._strategies.append(ArbitrageStrategy(self._settings))
+        self._strategies.append(HighConfidenceStrategy(self._settings))
         self._strategies.append(MarketMakingStrategy(self._settings))
 
         try:
@@ -105,6 +126,7 @@ class Orchestrator:
             "size_usd": round(size_usd, 2),
             "confidence": round(signal.confidence, 3),
             "mode": self._settings.trading_mode,
+            "order_type": signal.order_type,
         }
 
         mode = self._settings.trading_mode
@@ -145,27 +167,39 @@ class Orchestrator:
             logger.error("Cannot trade: py_clob_client order types not available")
             return
 
-        try:
-            tick_size = self._orderbook_tracker.get_tick_size(signal.token_id)
-            neg_risk = self._orderbook_tracker.get_neg_risk(signal.token_id)
-
-            if tick_size is None:
-                logger.error(f"Cannot trade: tick_size unknown for {signal.token_id[:16]}...")
+        # Balance check before placing order
+        balance = fetch_usdc_balance(self._clob_client)
+        if balance is not None:
+            self._risk_manager.set_balance(balance)
+            if balance < size_usd:
+                logger.warning(
+                    f"Insufficient balance: ${balance:.2f} < ${size_usd:.2f}",
+                    extra={"extra_data": trade_info},
+                )
                 return
 
-            order_args = OrderArgs(
-                token_id=signal.token_id,
-                price=signal.suggested_price,
-                size=size_usd / signal.suggested_price,
-                side=BUY if signal.side == "BUY" else SELL,
-            )
-            result = self._clob_client.create_and_post_order(
-                order_args,
-                options=PartialCreateOrderOptions(
-                    tick_size=tick_size,
-                    neg_risk=neg_risk if neg_risk is not None else False,
-                ),
-            )
+        try:
+            side = BUY if signal.side == "BUY" else SELL
+
+            if signal.order_type == "market":
+                # Fill-or-kill market order for immediate execution
+                market_args = MarketOrderArgs(
+                    token_id=signal.token_id,
+                    amount=size_usd,
+                    side=side,
+                )
+                signed_order = self._clob_client.create_market_order(market_args)
+                result = self._clob_client.post_order(signed_order, OrderType.FOK)
+            else:
+                # Standard limit order (GTC)
+                order_args = OrderArgs(
+                    price=signal.suggested_price,
+                    size=size_usd / signal.suggested_price,
+                    side=side,
+                    token_id=signal.token_id,
+                )
+                signed_order = self._clob_client.create_order(order_args)
+                result = self._clob_client.post_order(signed_order)
 
             logger.info(f"Order placed: {result}", extra={"extra_data": trade_info})
             self._zmq_publisher.publish("trade", trade_info)
@@ -236,6 +270,22 @@ class Orchestrator:
                     f"{len(markets)} matching markets"
                 )
 
+        # Log remaining time for time-based markets
+        now_utc = datetime.now(timezone.utc)
+        for m in markets:
+            end_dt = m.get("end_date")
+            if end_dt:
+                remaining = (end_dt - now_utc).total_seconds()
+                mins, secs = divmod(int(max(0, remaining)), 60)
+                if remaining <= 300:
+                    logger.info(
+                        f"[{m['slug']}] {mins}m{secs:02d}s left — LAST 5 MIN"
+                    )
+                elif self._tick_count % 6 == 0:  # log every ~60s otherwise
+                    logger.info(
+                        f"[{m['slug']}] {mins}m{secs:02d}s left"
+                    )
+
         # Fetch whale data if needed
         if "whale_trades" in required_data:
             self._whale_tracker.check_all_wallets()
@@ -273,7 +323,13 @@ class Orchestrator:
                     })
 
                     # Risk check and sizing
-                    size = self._risk_manager.calculate_position_size(signal)
+                    fixed = signal.metadata.get("fixed_size_usd")
+                    if fixed:
+                        if not self._risk_manager.pre_trade_check(signal):
+                            continue
+                        size = fixed
+                    else:
+                        size = self._risk_manager.calculate_position_size(signal)
                     if size > 0:
                         ob = orderbooks.get(signal.token_id)
                         self._execute_signal(signal, size, orderbook=ob)
@@ -281,6 +337,16 @@ class Orchestrator:
         # Check resting paper orders each tick
         if self._paper_trader and orderbooks:
             self._paper_trader.check_resting_orders(orderbooks)
+
+        # Track and cancel stale orders + refresh positions (live mode, every ~60s)
+        if (self._settings.trading_mode == "live"
+                and self._clob_client
+                and self._tick_count % 6 == 0):
+            self._order_tracker.fetch_open_orders()
+            cancelled = self._order_tracker.cancel_stale_orders()
+            if cancelled:
+                logger.info(f"Cancelled {cancelled} stale orders")
+            self._position_tracker.fetch_positions()
 
         # Heartbeat
         heartbeat = {
@@ -290,6 +356,9 @@ class Orchestrator:
         }
         if self._paper_trader:
             heartbeat["paper"] = self._paper_trader.get_position_summary()
+        if self._settings.trading_mode == "live":
+            heartbeat["open_orders"] = self._order_tracker.get_summary()
+            heartbeat["positions"] = self._position_tracker.get_summary()
 
         self._zmq_publisher.publish("heartbeat", heartbeat)
 

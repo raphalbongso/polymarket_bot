@@ -56,6 +56,12 @@ class Settings:
     news_api_key: str = ""
     openai_api_key: str = ""
 
+    # High confidence strategy
+    high_confidence_threshold: float = 0.95
+
+    # Order management
+    stale_order_seconds: float = 300.0
+
     # Whale following
     whale_wallets: tuple = ()
 
@@ -108,5 +114,7 @@ def load_settings() -> Settings:
         zmq_pub_port=int(os.getenv("ZMQ_PUB_PORT", "5555")),
         news_api_key=os.getenv("NEWS_API_KEY", ""),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        high_confidence_threshold=float(os.getenv("HIGH_CONFIDENCE_THRESHOLD", "0.95")),
+        stale_order_seconds=float(os.getenv("STALE_ORDER_SECONDS", "300.0")),
         whale_wallets=whale_wallets,
     )

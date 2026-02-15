@@ -17,7 +17,8 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(settings.chain_id, 137)
             self.assertEqual(settings.kelly_fraction, 0.25)
 
-    def test_dry_run_defaults_true(self):
+    @patch("config.settings.load_dotenv")
+    def test_dry_run_defaults_true(self, _mock_dotenv):
         """DRY_RUN is True when not set in environment."""
         with patch.dict(os.environ, {}, clear=True):
             settings = load_settings()

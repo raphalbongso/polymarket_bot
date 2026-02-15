@@ -17,6 +17,7 @@ class Signal:
     suggested_price: float
     max_size: float        # Maximum position in USD
     metadata: dict = field(default_factory=dict)
+    order_type: str = "limit"  # "limit" or "market"
 
 
 class BaseStrategy(ABC):

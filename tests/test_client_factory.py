@@ -31,11 +31,12 @@ class TestClientFactory(unittest.TestCase):
         )
         client = create_clob_client(settings)
         self.assertIsNotNone(client)
-        # Creds are now passed directly to constructor, not via set_api_creds
+        # Creds are now passed directly to constructor as ApiCreds object
         call_kwargs = MockClob.call_args[1]
-        self.assertEqual(call_kwargs["creds"]["apiKey"], "key123")
-        self.assertEqual(call_kwargs["creds"]["secret"], "secret123")
-        self.assertEqual(call_kwargs["creds"]["passphrase"], "pass123")
+        creds = call_kwargs["creds"]
+        self.assertEqual(creds.api_key, "key123")
+        self.assertEqual(creds.api_secret, "secret123")
+        self.assertEqual(creds.api_passphrase, "pass123")
         # set_api_creds should NOT be called when explicit creds are provided
         mock_instance.set_api_creds.assert_not_called()
 

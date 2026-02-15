@@ -47,6 +47,15 @@ class MarketFetcher:
         if len(tokens_raw) != 2:
             return None
 
+        # Parse end date into a UTC datetime (or None)
+        end_dt = None
+        end_date_str = m.get("endDate", "")
+        if end_date_str:
+            try:
+                end_dt = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+
         return {
             "condition_id": m.get("conditionId", ""),
             "question": m.get("question", ""),
@@ -55,6 +64,7 @@ class MarketFetcher:
             "volume": float(m.get("volume", 0)),
             "liquidity": float(m.get("liquidity", 0)),
             "slug": m.get("slug", ""),
+            "end_date": end_dt,
         }
 
     def _fetch_recurring_markets(self, prefix):
