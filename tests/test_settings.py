@@ -93,7 +93,8 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(settings.paper_slippage_bps, 10.0)
             self.assertEqual(settings.paper_order_ttl_seconds, 600.0)
 
-    def test_signature_type_default(self):
+    @patch("config.settings.load_dotenv")
+    def test_signature_type_default(self, _mock_dotenv):
         """SIGNATURE_TYPE defaults to 0 (EOA)."""
         with patch.dict(os.environ, {}, clear=True):
             settings = load_settings()
@@ -105,7 +106,8 @@ class TestSettings(unittest.TestCase):
             settings = load_settings()
             self.assertEqual(settings.signature_type, 2)
 
-    def test_funder_address_default(self):
+    @patch("config.settings.load_dotenv")
+    def test_funder_address_default(self, _mock_dotenv):
         """FUNDER_ADDRESS defaults to empty string."""
         with patch.dict(os.environ, {}, clear=True):
             settings = load_settings()
