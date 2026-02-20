@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-VALID_TRADING_MODES = ("dry_run", "paper", "live")
+VALID_TRADING_MODES = ("dry_run", "paper", "live", "selenium")
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,19 @@ class Settings:
     # Whale following
     whale_wallets: tuple = ()
 
+    # Selenium executor
+    selenium_headless: bool = False
+    selenium_cookie_file: str = "cookies/polymarket_cookies.json"
+    selenium_timeout: int = 30
+    selenium_email: str = ""
+    selenium_imap_host: str = ""
+    selenium_imap_user: str = ""
+    selenium_imap_password: str = ""
+    selenium_chrome_profile_dir: str = ""
+    selenium_base_url: str = "https://polymarket.com"
+    selenium_selectors_file: str = ""
+    selenium_screenshot_on_error: bool = True
+
 
 def load_settings() -> Settings:
     """Load settings from .env file and environment variables."""
@@ -86,8 +99,8 @@ def load_settings() -> Settings:
         is_dry = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes")
         trading_mode = "dry_run" if is_dry else "live"
 
-    # dry_run is True for both dry_run and paper modes
-    dry_run = trading_mode != "live"
+    # dry_run is True for dry_run and paper modes; False for live and selenium
+    dry_run = trading_mode in ("dry_run", "paper")
 
     return Settings(
         private_key=os.getenv("POLYMARKET_PRIVATE_KEY", ""),
@@ -117,4 +130,16 @@ def load_settings() -> Settings:
         high_confidence_threshold=float(os.getenv("HIGH_CONFIDENCE_THRESHOLD", "0.95")),
         stale_order_seconds=float(os.getenv("STALE_ORDER_SECONDS", "300.0")),
         whale_wallets=whale_wallets,
+        # Selenium
+        selenium_headless=os.getenv("SELENIUM_HEADLESS", "false").lower() in ("true", "1", "yes"),
+        selenium_cookie_file=os.getenv("SELENIUM_COOKIE_FILE", "cookies/polymarket_cookies.json"),
+        selenium_timeout=int(os.getenv("SELENIUM_TIMEOUT", "30")),
+        selenium_email=os.getenv("SELENIUM_EMAIL", ""),
+        selenium_imap_host=os.getenv("SELENIUM_IMAP_HOST", ""),
+        selenium_imap_user=os.getenv("SELENIUM_IMAP_USER", ""),
+        selenium_imap_password=os.getenv("SELENIUM_IMAP_PASSWORD", ""),
+        selenium_chrome_profile_dir=os.getenv("SELENIUM_CHROME_PROFILE_DIR", ""),
+        selenium_base_url=os.getenv("SELENIUM_BASE_URL", "https://polymarket.com"),
+        selenium_selectors_file=os.getenv("SELENIUM_SELECTORS_FILE", ""),
+        selenium_screenshot_on_error=os.getenv("SELENIUM_SCREENSHOT_ON_ERROR", "true").lower() in ("true", "1", "yes"),
     )

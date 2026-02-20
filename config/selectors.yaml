@@ -1,0 +1,57 @@
+# Polymarket UI selectors for Selenium automation.
+# Update these when the Polymarket frontend changes.
+# Each element lists multiple selectors tried in order (CSS first, then XPath).
+
+login:
+  email_input:
+    - "input[type='email']"
+    - "input[name='email']"
+    - "//input[@type='email']"
+  continue_button:
+    - "button[type='submit']"
+    - "//button[contains(text(), 'Continue')]"
+    - "//button[contains(text(), 'Log in')]"
+  logged_in_indicator:
+    - "[data-testid='user-menu']"
+    - "[data-testid='portfolio-link']"
+    - "//a[contains(@href, '/portfolio')]"
+
+market:
+  # Trade panel
+  yes_button:
+    - "[data-testid='outcome-yes']"
+    - "//button[contains(text(), 'Yes')]"
+    - "//div[contains(@class, 'outcome')]//button[contains(text(), 'Yes')]"
+  no_button:
+    - "[data-testid='outcome-no']"
+    - "//button[contains(text(), 'No')]"
+    - "//div[contains(@class, 'outcome')]//button[contains(text(), 'No')]"
+  buy_button:
+    - "[data-testid='trade-buy']"
+    - "//button[contains(text(), 'Buy')]"
+  sell_button:
+    - "[data-testid='trade-sell']"
+    - "//button[contains(text(), 'Sell')]"
+  price_input:
+    - "input[data-testid='price-input']"
+    - "input[placeholder*='Price']"
+    - "//input[contains(@placeholder, 'Price')]"
+  amount_input:
+    - "input[data-testid='amount-input']"
+    - "input[placeholder*='Amount']"
+    - "//input[contains(@placeholder, 'Amount')]"
+  submit_button:
+    - "button[data-testid='submit-order']"
+    - "//button[contains(text(), 'Submit')]"
+    - "//button[contains(text(), 'Place order')]"
+  confirm_button:
+    - "button[data-testid='confirm-order']"
+    - "//button[contains(text(), 'Confirm')]"
+  order_success:
+    - "[data-testid='order-success']"
+    - "//div[contains(text(), 'Order placed')]"
+    - "//div[contains(text(), 'Success')]"
+  order_error:
+    - "[data-testid='order-error']"
+    - "//div[contains(@class, 'error')]"
+    - "//div[contains(text(), 'Failed')]"

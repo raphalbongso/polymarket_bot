@@ -12,6 +12,12 @@ try:
 except ImportError:
     HAS_ORDER_TYPES = False
 from bot.paper_trader import PaperTrader
+
+try:
+    from bot.selenium_executor import SeleniumExecutor
+    HAS_SELENIUM = True
+except ImportError:
+    HAS_SELENIUM = False
 from data.market_fetcher import MarketFetcher
 from data.orderbook_tracker import OrderbookTracker
 from data.order_tracker import OrderTracker
@@ -61,6 +67,16 @@ class Orchestrator:
                 order_ttl=settings.paper_order_ttl_seconds,
             )
             self._risk_manager.set_balance(settings.paper_balance)
+
+        # Selenium executor (only for selenium mode)
+        self._selenium_executor = None
+        if settings.trading_mode == "selenium":
+            if not HAS_SELENIUM:
+                raise ImportError(
+                    "Selenium mode requires 'selenium' and 'pyyaml' packages. "
+                    "Install with: pip install selenium pyyaml"
+                )
+            self._selenium_executor = SeleniumExecutor(settings)
 
         # Sync real balance for live mode
         if settings.trading_mode == "live" and self._clob_client:
@@ -155,6 +171,23 @@ class Orchestrator:
                     "side": signal.side,
                     "size": size_usd,
                     "price": fill.avg_fill_price,
+                })
+            return
+
+        # --- SELENIUM TRADING ---
+        if mode == "selenium":
+            if self._selenium_executor is None:
+                logger.error("Cannot trade: SeleniumExecutor not available")
+                return
+            result = self._selenium_executor.execute_trade(signal, size_usd)
+            trade_info["selenium_result"] = result
+            self._zmq_publisher.publish("trade", trade_info)
+            if result.get("success"):
+                self._risk_manager.record_trade({
+                    "pnl": 0.0,
+                    "side": signal.side,
+                    "size": size_usd,
+                    "price": signal.suggested_price,
                 })
             return
 
@@ -315,6 +348,15 @@ class Orchestrator:
                     continue
 
                 for signal in signals:
+                    # Inject market metadata for selenium mode
+                    if self._settings.trading_mode == "selenium":
+                        signal.metadata.setdefault("slug", market["slug"])
+                        tokens = market.get("tokens", [])
+                        if tokens:
+                            signal.metadata.setdefault(
+                                "is_yes", signal.token_id == tokens[0]
+                            )
+
                     self._zmq_publisher.publish("signal", {
                         "strategy": signal.strategy_name,
                         "market": signal.market_condition_id,
@@ -378,6 +420,13 @@ class Orchestrator:
                 logger.info("Cancelled all open orders")
             except Exception as e:
                 logger.error(f"Failed to cancel orders: {e}")
+
+        # Close selenium browser
+        if self._selenium_executor:
+            try:
+                self._selenium_executor.close()
+            except Exception as e:
+                logger.error(f"Failed to close selenium: {e}")
 
         # Paper trading final report
         if self._paper_trader:
