@@ -38,7 +38,18 @@ def main():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1280,900")
 
+    # Anti-detection flags (match selenium_executor.py)
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
     driver = webdriver.Chrome(options=options)
+
+    # Remove webdriver flag to reduce detection
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
+    )
 
     try:
         driver.get(f"{base_url}/login")
@@ -52,7 +63,11 @@ def main():
         max_wait = 300  # 5 minutes
         start = time.time()
         while time.time() - start < max_wait:
-            current_url = driver.current_url
+            try:
+                current_url = driver.current_url
+            except Exception:
+                print("Browser was closed manually.")
+                return
             # Logged in if we're no longer on /login
             if "/login" not in current_url and base_url in current_url:
                 print(f"Login detected! Current URL: {current_url}")
@@ -70,7 +85,10 @@ def main():
         time.sleep(5)
 
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
