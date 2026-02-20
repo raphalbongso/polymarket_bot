@@ -10,3 +10,6 @@ build/
 bot.log
 .mypy_cache/
 .pytest_cache/
+chrome_profile/
+cookies/
+screenshots/

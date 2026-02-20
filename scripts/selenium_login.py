@@ -32,7 +32,8 @@ def main():
     options = Options()
     # Use persistent profile if configured
     if settings.selenium_chrome_profile_dir:
-        options.add_argument(f"--user-data-dir={settings.selenium_chrome_profile_dir}")
+        profile_dir = os.path.abspath(settings.selenium_chrome_profile_dir)
+        options.add_argument(f"--user-data-dir={profile_dir}")
 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")

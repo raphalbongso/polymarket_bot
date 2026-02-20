@@ -26,6 +26,7 @@ def main():
         "dry_run": "DRY RUN (log only, no trades)",
         "paper": "PAPER TRADING (simulated fills against live data)",
         "live": "LIVE TRADING",
+        "selenium": "SELENIUM TRADING (browser-based execution)",
     }
     mode_label = mode_labels.get(settings.trading_mode, settings.trading_mode)
 

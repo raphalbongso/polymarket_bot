@@ -1,21 +1,23 @@
-"""High-confidence strategy — buy outcomes trading at 98%+ expecting resolution at 1.00."""
+"""High-confidence strategy — buy outcomes trading at 97%+ expecting resolution at 1.00."""
 from config.settings import Settings
+from monitoring.logger import get_logger
 from strategies.base import BaseStrategy, Signal
+
+logger = get_logger("strategy.high_confidence")
+
+FIXED_BET_USD = 6.0
 
 
 class HighConfidenceStrategy(BaseStrategy):
-    """Buy outcomes when the market is 98%+ one-sided, betting on resolution at 1.00.
+    """Buy outcomes when the market is 97%+ one-sided, betting on resolution at 1.00.
 
-    In BTC 15-minute markets, when one side reaches 98%+ it almost always resolves
-    that way. Uses a fixed $10 bet size per trade; profits compound in the balance.
+    Fixed $6 bet per trade. No compounding.
     """
-
-    FIXED_SIZE_USD = 10.0
 
     def __init__(self, settings: Settings):
         super().__init__(settings, name="high_confidence")
         self._threshold = settings.high_confidence_threshold
-        self._traded_markets = set()  # condition_ids already traded (1 trade per market)
+        self._traded_markets = set()
 
     def evaluate(self, market, orderbook, price_history):
         signals = []
@@ -38,20 +40,21 @@ class HighConfidenceStrategy(BaseStrategy):
             best_bid = bids[0][0]
             best_ask = asks[0][0]
 
-            # Only trigger when the market is 98%+ confident in this outcome
             if best_bid < self._threshold:
                 continue
 
-            # Don't buy if the ask is so high there's no edge left
             if best_ask >= 0.995:
                 continue
 
-            # Buy at the best ask to get filled immediately
             buy_price = best_ask
             confidence = min(0.995, best_bid + 0.01)
             edge = 1.0 - buy_price
 
             self._traded_markets.add(cid)
+
+            logger.info(
+                f"Signal: BUY @ {buy_price:.4f}, bet ${FIXED_BET_USD:.2f}"
+            )
 
             signals.append(Signal(
                 strategy_name=self.name,
@@ -61,15 +64,15 @@ class HighConfidenceStrategy(BaseStrategy):
                 confidence=confidence,
                 raw_edge=edge,
                 suggested_price=buy_price,
-                max_size=self.FIXED_SIZE_USD,
+                max_size=FIXED_BET_USD,
                 metadata={
                     "type": "high_confidence",
                     "market_price": best_bid,
-                    "fixed_size_usd": self.FIXED_SIZE_USD,
+                    "fixed_size_usd": FIXED_BET_USD,
                 },
                 order_type="market",
             ))
-            break  # only trade one side per market
+            break
 
         return signals
 

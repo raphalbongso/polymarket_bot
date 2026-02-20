@@ -78,14 +78,28 @@ class Orchestrator:
                 )
             self._selenium_executor = SeleniumExecutor(settings)
 
-        # Sync real balance for live mode
+            # Set balance for risk sizing — try real balance first, fall back to paper_balance
+            sel_balance = None
+            if self._clob_client:
+                sel_balance = fetch_usdc_balance(self._clob_client)
+            if sel_balance is not None:
+                self._risk_manager.set_balance(sel_balance)
+                logger.info(f"Selenium USDC balance: ${sel_balance:.2f}")
+            else:
+                self._risk_manager.set_balance(settings.paper_balance)
+                logger.info(f"Selenium balance (paper fallback): ${settings.paper_balance:.2f}")
+
+        # Sync real balance for live mode (mandatory — no balance = no trading)
         if settings.trading_mode == "live" and self._clob_client:
             real_balance = fetch_usdc_balance(self._clob_client)
             if real_balance is not None:
                 self._risk_manager.set_balance(real_balance)
                 logger.info(f"Live USDC balance: ${real_balance:.2f}")
             else:
-                logger.warning("Could not fetch live balance")
+                raise RuntimeError(
+                    "Cannot start in live mode: failed to fetch USDC balance. "
+                    "Check API credentials and network connectivity."
+                )
 
         # Parse slug filter prefixes
         self._slug_prefixes = tuple(
@@ -99,7 +113,9 @@ class Orchestrator:
         self._tick_count = 0
 
     def _register_default_strategies(self):
-        """Register the four default strategies with graceful degradation."""
+        """Register strategies, optionally filtered by ENABLED_STRATEGIES."""
+        allowed = self._settings.enabled_strategies  # empty tuple = all
+
         self._strategies.append(ArbitrageStrategy(self._settings))
         self._strategies.append(HighConfidenceStrategy(self._settings))
         self._strategies.append(MarketMakingStrategy(self._settings))
@@ -115,6 +131,13 @@ class Orchestrator:
             )
         except Exception as e:
             logger.warning(f"Whale strategy unavailable: {e}")
+
+        # Disable strategies not in the allowed list
+        if allowed:
+            for s in self._strategies:
+                if s.name not in allowed:
+                    s.disable()
+                    logger.info(f"Strategy disabled: {s.name}")
 
     def _get_required_data_types(self):
         """Union of all enabled strategies' data requirements."""
@@ -164,6 +187,12 @@ class Orchestrator:
             trade_info["slippage_bps"] = round(fill.slippage_bps, 1)
             trade_info["realized_pnl"] = round(fill.realized_pnl, 4)
             self._zmq_publisher.publish("trade", trade_info)
+
+            if fill.filled_qty > 0 and signal.strategy_name == "market_making":
+                for s in self._strategies:
+                    if hasattr(s, "update_inventory"):
+                        delta = size_usd if signal.side == "BUY" else -size_usd
+                        s.update_inventory(signal.token_id, delta)
 
             if fill.realized_pnl != 0:
                 self._risk_manager.record_trade({
@@ -275,7 +304,7 @@ class Orchestrator:
             try:
                 self._tick(required_data)
             except Exception as e:
-                logger.error(f"Tick error: {e}")
+                logger.exception(f"Tick error: {e}")
 
             self._tick_count += 1
             time.sleep(self._settings.tick_interval_seconds)
@@ -289,13 +318,27 @@ class Orchestrator:
         if self._tick_count % 30 == 0:
             self._market_fetcher.refresh()
 
+        # Restart Chrome every 180 ticks (~30 min) to prevent memory leaks / tab crashes
+        if self._selenium_executor and self._tick_count > 0 and self._tick_count % 180 == 0:
+            try:
+                self._selenium_executor.restart_driver()
+            except Exception as e:
+                logger.error(f"Chrome restart failed: {e}")
+
+        # Redeem won positions every 60 ticks (~10 min)
+        if self._selenium_executor and self._tick_count > 0 and self._tick_count % 60 == 0:
+            try:
+                self._selenium_executor._market_page.redeem_positions()
+            except Exception as e:
+                logger.warning(f"Redeem check failed: {e}")
+
         markets = self._market_fetcher.get_active_markets()
 
         # Apply slug filter if configured
         if self._slug_prefixes:
             markets = [
                 m for m in markets
-                if any(m["slug"].startswith(p) for p in self._slug_prefixes)
+                if any(m.get("slug", "").startswith(p) for p in self._slug_prefixes)
             ]
             if self._tick_count == 0:
                 logger.info(
@@ -308,7 +351,15 @@ class Orchestrator:
         for m in markets:
             end_dt = m.get("end_date")
             if end_dt:
-                remaining = (end_dt - now_utc).total_seconds()
+                if isinstance(end_dt, str):
+                    try:
+                        end_dt = datetime.fromisoformat(end_dt.replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        continue
+                try:
+                    remaining = (end_dt - now_utc).total_seconds()
+                except TypeError:
+                    continue
                 mins, secs = divmod(int(max(0, remaining)), 60)
                 if remaining <= 300:
                     logger.info(
@@ -326,7 +377,7 @@ class Orchestrator:
         orderbooks = {}
         for market in markets[:20]:  # Limit to top 20 markets
             if "orderbook" in required_data:
-                orderbooks = self._fetch_orderbooks(market)
+                orderbooks.update(self._fetch_orderbooks(market))
 
                 # Record midpoints in price history
                 for token_id in market.get("tokens", []):

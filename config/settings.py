@@ -59,6 +59,9 @@ class Settings:
     # High confidence strategy
     high_confidence_threshold: float = 0.95
 
+    # Strategy filter (comma-separated names, empty = all)
+    enabled_strategies: tuple = ()
+
     # Order management
     stale_order_seconds: float = 300.0
 
@@ -73,7 +76,7 @@ class Settings:
     selenium_imap_host: str = ""
     selenium_imap_user: str = ""
     selenium_imap_password: str = ""
-    selenium_chrome_profile_dir: str = ""
+    selenium_chrome_profile_dir: str = "chrome_profile"
     selenium_base_url: str = "https://polymarket.com"
     selenium_selectors_file: str = ""
     selenium_screenshot_on_error: bool = True
@@ -128,6 +131,9 @@ def load_settings() -> Settings:
         news_api_key=os.getenv("NEWS_API_KEY", ""),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         high_confidence_threshold=float(os.getenv("HIGH_CONFIDENCE_THRESHOLD", "0.95")),
+        enabled_strategies=tuple(
+            s.strip() for s in os.getenv("ENABLED_STRATEGIES", "").split(",") if s.strip()
+        ),
         stale_order_seconds=float(os.getenv("STALE_ORDER_SECONDS", "300.0")),
         whale_wallets=whale_wallets,
         # Selenium
@@ -138,7 +144,7 @@ def load_settings() -> Settings:
         selenium_imap_host=os.getenv("SELENIUM_IMAP_HOST", ""),
         selenium_imap_user=os.getenv("SELENIUM_IMAP_USER", ""),
         selenium_imap_password=os.getenv("SELENIUM_IMAP_PASSWORD", ""),
-        selenium_chrome_profile_dir=os.getenv("SELENIUM_CHROME_PROFILE_DIR", ""),
+        selenium_chrome_profile_dir=os.getenv("SELENIUM_CHROME_PROFILE_DIR", "chrome_profile"),
         selenium_base_url=os.getenv("SELENIUM_BASE_URL", "https://polymarket.com"),
         selenium_selectors_file=os.getenv("SELENIUM_SELECTORS_FILE", ""),
         selenium_screenshot_on_error=os.getenv("SELENIUM_SCREENSHOT_ON_ERROR", "true").lower() in ("true", "1", "yes"),

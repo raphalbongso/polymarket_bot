@@ -11,13 +11,31 @@ class LoginPage(BasePage):
     """Handles the Polymarket login flow."""
 
     def is_logged_in(self, timeout=5):
-        """Check whether the browser session is already authenticated."""
+        """Check whether the browser session is already authenticated.
+
+        Uses two strategies:
+        1. Positive: look for logged-in-only elements (portfolio link, profile)
+        2. Negative: if "Log In" / "Sign Up" buttons are visible, we're NOT logged in
+        """
+        # Strategy 1: positive indicator
         selectors = self._get_selectors("login", "logged_in_indicator")
         try:
             self._find_with_fallback(selectors, timeout=timeout)
             return True
         except (TimeoutError, Exception):
-            return False
+            pass
+
+        # Strategy 2: negative indicator — if login buttons exist, not logged in
+        not_logged_in = self._get_selectors("login", "not_logged_in_indicator")
+        if not_logged_in:
+            try:
+                self._find_with_fallback(not_logged_in, timeout=2)
+                return False  # Login button found = definitely not logged in
+            except (TimeoutError, Exception):
+                # No login button found either — might be logged in (SPA still loading)
+                return True
+
+        return False
 
     def login_with_email(self, email):
         """Enter email and click continue to trigger the magic link email.

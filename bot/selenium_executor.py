@@ -1,4 +1,5 @@
 """Selenium-based trade executor — places orders via the Polymarket browser UI."""
+import os
 import time
 
 from selenium import webdriver
@@ -66,7 +67,8 @@ class SeleniumExecutor:
 
         # Use persistent Chrome profile if configured
         if self._settings.selenium_chrome_profile_dir:
-            options.add_argument(f"--user-data-dir={self._settings.selenium_chrome_profile_dir}")
+            profile_dir = os.path.abspath(self._settings.selenium_chrome_profile_dir)
+            options.add_argument(f"--user-data-dir={profile_dir}")
 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -190,9 +192,49 @@ class SeleniumExecutor:
 
         except Exception as e:
             logger.error(f"Selenium trade failed: {e}")
-            if self._settings.selenium_screenshot_on_error:
-                self._market_page._take_screenshot(f"trade_exception_{slug}")
+            if "tab crashed" in str(e).lower() or "session" in str(e).lower():
+                logger.info("Detected browser crash — auto-restarting Chrome...")
+                try:
+                    self.restart_driver()
+                except Exception as re:
+                    logger.error(f"Auto-restart failed: {re}")
+            else:
+                if self._settings.selenium_screenshot_on_error:
+                    try:
+                        self._market_page._take_screenshot(f"trade_exception_{slug}")
+                    except Exception:
+                        pass
             return {"success": False, "message": str(e)}
+
+    def restart_driver(self):
+        """Save cookies, quit browser, launch a fresh Chrome instance."""
+        logger.info("Restarting Chrome to prevent memory leaks...")
+        self.close()
+        time.sleep(2)
+
+        self._driver = self._create_driver()
+        self._driver.get(self._base_url)
+        time.sleep(1)
+
+        load_cookies(self._driver, self._cookie_file)
+        self._driver.refresh()
+        time.sleep(2)
+
+        # Rebuild page objects with new driver
+        self._login_page = LoginPage(
+            self._driver,
+            timeout=self._settings.selenium_timeout,
+            selectors_path=self._settings.selenium_selectors_file,
+        )
+        self._market_page = MarketPage(
+            self._driver,
+            base_url=self._base_url,
+            timeout=self._settings.selenium_timeout,
+            selectors_path=self._settings.selenium_selectors_file,
+        )
+
+        self._ensure_logged_in()
+        logger.info("Chrome restarted successfully")
 
     def close(self):
         """Save cookies and quit the browser."""

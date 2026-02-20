@@ -70,10 +70,17 @@ class OrderTracker:
         """Cancel all stale orders. Returns number cancelled."""
         stale = self.get_stale_orders()
         cancelled = 0
+        cancelled_ids = set()
         for order in stale:
             oid = order.get("id") or order.get("orderID", "")
             if oid and self.cancel_order(oid):
                 cancelled += 1
+                cancelled_ids.add(oid)
+        if cancelled_ids:
+            self._open_orders = [
+                o for o in self._open_orders
+                if (o.get("id") or o.get("orderID", "")) not in cancelled_ids
+            ]
         return cancelled
 
     def get_summary(self) -> dict:

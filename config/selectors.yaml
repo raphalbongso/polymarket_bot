@@ -1,6 +1,8 @@
 # Polymarket UI selectors for Selenium automation.
 # Update these when the Polymarket frontend changes.
 # Each element lists multiple selectors tried in order (CSS first, then XPath).
+# NOTE: Use contains(., 'text') not contains(text(), 'text') for buttons with
+#       child elements (e.g., <button><span>Up</span><span>2¢</span></button>).
 
 login:
   email_input:
@@ -9,49 +11,65 @@ login:
     - "//input[@type='email']"
   continue_button:
     - "button[type='submit']"
-    - "//button[contains(text(), 'Continue')]"
-    - "//button[contains(text(), 'Log in')]"
+    - "//button[contains(., 'Continue')]"
+    - "//button[contains(., 'Log in')]"
   logged_in_indicator:
-    - "[data-testid='user-menu']"
-    - "[data-testid='portfolio-link']"
+    - "a[href='/portfolio']"
+    - "a[href*='/portfolio']"
     - "//a[contains(@href, '/portfolio')]"
+  not_logged_in_indicator:
+    - "//button[contains(., 'Log In')]"
+    - "//button[contains(., 'Sign Up')]"
 
 market:
-  # Trade panel
-  yes_button:
-    - "[data-testid='outcome-yes']"
-    - "//button[contains(text(), 'Yes')]"
-    - "//div[contains(@class, 'outcome')]//button[contains(text(), 'Yes')]"
-  no_button:
-    - "[data-testid='outcome-no']"
-    - "//button[contains(text(), 'No')]"
-    - "//div[contains(@class, 'outcome')]//button[contains(text(), 'No')]"
+  # Buy / Sell tabs at top of trade panel
   buy_button:
-    - "[data-testid='trade-buy']"
-    - "//button[contains(text(), 'Buy')]"
+    - "//button[contains(@class, 'text-heading-lg')][contains(., 'Buy')]"
+    - "//*[text()='Buy'][not(contains(@class, 'trading-button'))]"
+    - "//button[text()='Buy']"
+    - "//p[text()='Buy']"
   sell_button:
-    - "[data-testid='trade-sell']"
-    - "//button[contains(text(), 'Sell')]"
-  price_input:
-    - "input[data-testid='price-input']"
-    - "input[placeholder*='Price']"
-    - "//input[contains(@placeholder, 'Price')]"
+    - "//button[contains(@class, 'text-heading-lg')][contains(., 'Sell')]"
+    - "//*[text()='Sell'][not(contains(@class, 'trading-button'))]"
+    - "//button[text()='Sell']"
+    - "//p[text()='Sell']"
+  # Market / Limit toggle
+  order_type_toggle:
+    - "button[aria-label='side selection']"
+  # Outcome buttons (Yes/No or Up/Down depending on market type)
+  yes_button:
+    - "//button[contains(@class, 'trading-button')][contains(., 'Yes')]"
+    - "//button[contains(@class, 'trading-button')][contains(., 'Up')]"
+  no_button:
+    - "//button[contains(@class, 'trading-button')][contains(., 'No')]"
+    - "//button[contains(@class, 'trading-button')][contains(., 'Down')]"
+  # Amount input (dollar amount, placeholder $0)
   amount_input:
-    - "input[data-testid='amount-input']"
-    - "input[placeholder*='Amount']"
-    - "//input[contains(@placeholder, 'Amount')]"
+    - "input[placeholder='$0']"
+    - "//input[@placeholder='$0']"
+  # Preset amount buttons
+  amount_1:
+    - "//button[contains(., '+$1')]"
+  amount_5:
+    - "//button[contains(., '+$5')]"
+  amount_10:
+    - "//button[contains(., '+$10')]"
+  amount_100:
+    - "//button[contains(., '+$100')]"
+  amount_max:
+    - "//button[contains(., 'Max')]"
+  # Submit / confirm order — matches the main trading-button that says "Buy Up", etc.
+  # Excludes outcome buttons (which contain "¢") and unavailable buttons.
   submit_button:
-    - "button[data-testid='submit-order']"
-    - "//button[contains(text(), 'Submit')]"
-    - "//button[contains(text(), 'Place order')]"
+    - "//button[contains(@class, 'trading-button')][contains(., 'Buy') or contains(., 'Sell')][not(contains(., '¢'))]"
   confirm_button:
-    - "button[data-testid='confirm-order']"
-    - "//button[contains(text(), 'Confirm')]"
+    - "//button[contains(., 'Confirm')]"
+  # Order result indicators
   order_success:
-    - "[data-testid='order-success']"
-    - "//div[contains(text(), 'Order placed')]"
-    - "//div[contains(text(), 'Success')]"
+    - "//div[contains(., 'Order placed')]"
+    - "//div[contains(., 'Success')]"
+    - "//div[contains(., 'Filled')]"
   order_error:
-    - "[data-testid='order-error']"
     - "//div[contains(@class, 'error')]"
-    - "//div[contains(text(), 'Failed')]"
+    - "//div[contains(., 'Failed')]"
+    - "//button[contains(@class, 'trading-button')][contains(., 'Unavailable')]"

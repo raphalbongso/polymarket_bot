@@ -12,13 +12,15 @@ from monitoring.logger import get_logger
 logger = get_logger("selenium.base_page")
 
 _SELECTORS_CACHE = None
+_SELECTORS_PATH = None
 
 
 def load_selectors(path=None):
     """Load UI selectors from YAML, cached after first call."""
-    global _SELECTORS_CACHE
-    if _SELECTORS_CACHE is not None:
+    global _SELECTORS_CACHE, _SELECTORS_PATH
+    if _SELECTORS_CACHE is not None and _SELECTORS_PATH == path:
         return _SELECTORS_CACHE
+    _SELECTORS_PATH = path
 
     if not path:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "selectors.yaml")

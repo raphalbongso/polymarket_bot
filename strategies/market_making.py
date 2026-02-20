@@ -46,12 +46,16 @@ class MarketMakingStrategy(BaseStrategy):
         inventory = self._inventory.get(yes_token, 0.0)
         skew = self._skew_factor * (inventory / self._max_inventory) * half_spread
 
-        bid_price = round(midpoint - half_spread + skew, 4)
-        ask_price = round(midpoint + half_spread + skew, 4)
+        bid_price = round(midpoint - half_spread - skew, 4)
+        ask_price = round(midpoint + half_spread - skew, 4)
 
         # Clamp to valid price range
         bid_price = max(0.01, min(0.99, bid_price))
         ask_price = max(0.01, min(0.99, ask_price))
+
+        # Crossed-quote guard: if bid >= ask, skip signals
+        if bid_price >= ask_price:
+            return signals
 
         # Base confidence of 0.55 (market makers earn spread more often than not),
         # boosted by wider spreads up to 0.85
