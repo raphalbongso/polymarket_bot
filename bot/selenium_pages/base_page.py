@@ -20,7 +20,7 @@ def load_selectors(path=None):
     if _SELECTORS_CACHE is not None:
         return _SELECTORS_CACHE
 
-    if path is None:
+    if not path:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "selectors.yaml")
     path = os.path.abspath(path)
     with open(path, "r") as f:
