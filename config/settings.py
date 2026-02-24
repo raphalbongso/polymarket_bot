@@ -57,7 +57,7 @@ class Settings:
     openai_api_key: str = ""
 
     # High confidence strategy
-    high_confidence_threshold: float = 0.95
+    high_confidence_threshold: float = 0.97
 
     # Strategy filter (comma-separated names, empty = all)
     enabled_strategies: tuple = ()
@@ -130,7 +130,7 @@ def load_settings() -> Settings:
         zmq_pub_port=int(os.getenv("ZMQ_PUB_PORT", "5555")),
         news_api_key=os.getenv("NEWS_API_KEY", ""),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        high_confidence_threshold=float(os.getenv("HIGH_CONFIDENCE_THRESHOLD", "0.95")),
+        high_confidence_threshold=float(os.getenv("HIGH_CONFIDENCE_THRESHOLD", "0.97")),
         enabled_strategies=tuple(
             s.strip() for s in os.getenv("ENABLED_STRATEGIES", "").split(",") if s.strip()
         ),
