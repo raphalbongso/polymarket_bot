@@ -68,17 +68,16 @@ class Orchestrator:
             )
             self._risk_manager.set_balance(settings.paper_balance)
 
-        # Selenium executor (only for selenium mode)
+        # Selenium executor (only for selenium mode — init in background)
         self._selenium_executor = None
+        self._selenium_ready = False
         if settings.trading_mode == "selenium":
             if not HAS_SELENIUM:
                 raise ImportError(
                     "Selenium mode requires 'selenium' and 'pyyaml' packages. "
                     "Install with: pip install selenium pyyaml"
                 )
-            self._selenium_executor = SeleniumExecutor(settings)
-
-            # Set balance for risk sizing — try real balance first, fall back to paper_balance
+            # Set balance first so heartbeats show something
             sel_balance = None
             if self._clob_client:
                 sel_balance = fetch_usdc_balance(self._clob_client)
@@ -86,8 +85,35 @@ class Orchestrator:
                 self._risk_manager.set_balance(sel_balance)
                 logger.info(f"Selenium USDC balance: ${sel_balance:.2f}")
             else:
-                self._risk_manager.set_balance(settings.paper_balance)
-                logger.info(f"Selenium balance (paper fallback): ${settings.paper_balance:.2f}")
+                # Don't use paper_balance ($1000) — wait for Selenium to read the real one
+                self._risk_manager.set_balance(0)
+                logger.info("Selenium mode: waiting for real balance from portfolio page...")
+
+            # Start Chrome in background thread so bot loop runs immediately
+            import threading
+            def _init_selenium():
+                try:
+                    self._selenium_executor = SeleniumExecutor(settings)
+                    self._selenium_ready = True
+                    logger.info("Selenium executor ready")
+                    # Read real balance from Polymarket portfolio page
+                    try:
+                        import re
+                        self._selenium_executor._driver.get("https://polymarket.com/portfolio")
+                        import time as _t; _t.sleep(4)
+                        body = self._selenium_executor._driver.find_element("tag name", "body").text
+                        amounts = re.findall(r'\$(\d[\d,]*\.?\d*)', body)
+                        if amounts:
+                            real_bal = float(amounts[0].replace(",", ""))
+                            if real_bal > 0:
+                                self._risk_manager.set_balance(real_bal)
+                                logger.info(f"Selenium real balance from portfolio: ${real_bal:.2f}")
+                    except Exception as be:
+                        logger.warning(f"Could not read portfolio balance: {be}")
+                except Exception as e:
+                    logger.error(f"Selenium init failed: {e}")
+            threading.Thread(target=_init_selenium, daemon=True).start()
+            logger.info("Selenium initializing in background...")
 
         # Sync real balance for live mode (mandatory — no balance = no trading)
         if settings.trading_mode == "live" and self._clob_client:
@@ -154,11 +180,13 @@ class Orchestrator:
             books[token_id] = self._orderbook_tracker.fetch_orderbook(token_id)
         return books
 
-    def _execute_signal(self, signal, size_usd, orderbook=None):
+    def _execute_signal(self, signal, size_usd, orderbook=None, market=None):
         """Execute a trading signal. Three-way branch: dry_run / paper / live."""
         trade_info = {
             "strategy": signal.strategy_name,
             "market": signal.market_condition_id,
+            "market_slug": (market or {}).get("slug", ""),
+            "market_question": (market or {}).get("question", ""),
             "token": signal.token_id[:16] + "...",
             "side": signal.side,
             "price": signal.suggested_price,
@@ -325,12 +353,18 @@ class Orchestrator:
             except Exception as e:
                 logger.error(f"Chrome restart failed: {e}")
 
-        # Redeem won positions every 60 ticks (~10 min)
-        if self._selenium_executor and self._tick_count > 0 and self._tick_count % 60 == 0:
-            try:
-                self._selenium_executor._market_page.redeem_positions()
-            except Exception as e:
-                logger.warning(f"Redeem check failed: {e}")
+        # Redeem won positions every 4th trade (only once per cycle)
+        if self._selenium_executor:
+            for s in self._strategies:
+                if hasattr(s, "should_redeem") and s.should_redeem():
+                    redeem_key = f"_redeemed_at_{s.trade_count}"
+                    if not getattr(self, redeem_key, False):
+                        setattr(self, redeem_key, True)
+                        try:
+                            logger.info(f"Trade #{s.trade_count} — redeem cycle")
+                            self._selenium_executor._market_page.redeem_positions()
+                        except Exception as e:
+                            logger.warning(f"Redeem check failed: {e}")
 
         markets = self._market_fetcher.get_active_markets()
 
@@ -425,7 +459,7 @@ class Orchestrator:
                         size = self._risk_manager.calculate_position_size(signal)
                     if size > 0:
                         ob = orderbooks.get(signal.token_id)
-                        self._execute_signal(signal, size, orderbook=ob)
+                        self._execute_signal(signal, size, orderbook=ob, market=market)
 
         # Check resting paper orders each tick
         if self._paper_trader and orderbooks:
@@ -446,12 +480,17 @@ class Orchestrator:
             "tick": self._tick_count,
             "timestamp": time.time(),
             "risk": self._risk_manager.get_risk_report(),
+            "strategies": {
+                s.name: {"active": s.is_enabled}
+                for s in self._strategies
+            },
         }
         if self._paper_trader:
             heartbeat["paper"] = self._paper_trader.get_position_summary()
-        if self._settings.trading_mode == "live":
+        if self._settings.trading_mode in ("live", "selenium"):
             heartbeat["open_orders"] = self._order_tracker.get_summary()
             heartbeat["positions"] = self._position_tracker.get_summary()
+            heartbeat["selenium_ready"] = getattr(self, "_selenium_ready", False)
 
         self._zmq_publisher.publish("heartbeat", heartbeat)
 

@@ -29,7 +29,7 @@ class MarketPage(BasePage):
         """Click the Yes/Up or No/Down outcome button."""
         key = "yes_button" if is_yes else "no_button"
         selectors = self._get_selectors("market", key)
-        self._wait_and_click(selectors)
+        self._wait_and_click(selectors, timeout=10)
         logger.info(f"Selected outcome: {'Yes/Up' if is_yes else 'No/Down'}")
 
     def select_buy_or_sell(self, side):
@@ -112,7 +112,7 @@ class MarketPage(BasePage):
     def submit_order(self):
         """Click the submit / place-order button."""
         selectors = self._get_selectors("market", "submit_button")
-        self._wait_and_click(selectors)
+        self._wait_and_click(selectors, timeout=10)
         logger.info("Order submitted")
 
     def confirm_order(self, timeout=10):

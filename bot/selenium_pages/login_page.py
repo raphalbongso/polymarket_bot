@@ -10,14 +10,15 @@ logger = get_logger("selenium.login_page")
 class LoginPage(BasePage):
     """Handles the Polymarket login flow."""
 
-    def is_logged_in(self, timeout=5):
+    def is_logged_in(self, timeout=10):
         """Check whether the browser session is already authenticated.
 
-        Uses two strategies:
+        Uses three strategies:
         1. Positive: look for logged-in-only elements (portfolio link, profile)
         2. Negative: if "Log In" / "Sign Up" buttons are visible, we're NOT logged in
+        3. URL check: navigate to portfolio — if not redirected to login, we're in
         """
-        # Strategy 1: positive indicator
+        # Strategy 1: positive indicator on current page
         selectors = self._get_selectors("login", "logged_in_indicator")
         try:
             self._find_with_fallback(selectors, timeout=timeout)
@@ -29,11 +30,27 @@ class LoginPage(BasePage):
         not_logged_in = self._get_selectors("login", "not_logged_in_indicator")
         if not_logged_in:
             try:
-                self._find_with_fallback(not_logged_in, timeout=2)
+                self._find_with_fallback(not_logged_in, timeout=3)
                 return False  # Login button found = definitely not logged in
             except (TimeoutError, Exception):
-                # No login button found either — might be logged in (SPA still loading)
+                pass
+
+        # Strategy 3: try navigating to portfolio
+        try:
+            current = self.driver.current_url
+            self.driver.get("https://polymarket.com/portfolio")
+            import time
+            time.sleep(3)
+            url = self.driver.current_url
+            if "/login" in url or "/signup" in url:
+                logger.info("Portfolio redirected to login — not authenticated")
+                self.driver.get(current)
+                return False
+            if "/portfolio" in url:
+                logger.info("Portfolio loaded — session is active")
                 return True
+        except Exception as e:
+            logger.warning(f"Portfolio check failed: {e}")
 
         return False
 

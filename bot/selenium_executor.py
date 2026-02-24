@@ -99,9 +99,19 @@ class SeleniumExecutor:
 
         email = self._settings.selenium_email
         if not email:
-            logger.error(
-                "SELENIUM_EMAIL not configured. Run scripts/selenium_login.py for manual login."
+            # No email configured — open login page and wait for manual login
+            logger.info(
+                "=== MANUAL LOGIN REQUIRED ==="
+                " Open the Chrome window and log in to Polymarket."
+                " Waiting up to 5 minutes..."
             )
+            self._driver.get(f"{self._base_url}/login")
+            time.sleep(2)
+            if self._login_page.wait_for_login_complete(timeout=300):
+                save_cookies(self._driver, self._cookie_file)
+                logger.info("Manual login successful — cookies saved")
+            else:
+                logger.error("Manual login timed out after 300s")
             return
 
         # Navigate to login page

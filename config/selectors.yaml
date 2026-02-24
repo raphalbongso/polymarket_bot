@@ -1,8 +1,6 @@
 # Polymarket UI selectors for Selenium automation.
 # Update these when the Polymarket frontend changes.
 # Each element lists multiple selectors tried in order (CSS first, then XPath).
-# NOTE: Use contains(., 'text') not contains(text(), 'text') for buttons with
-#       child elements (e.g., <button><span>Up</span><span>2¢</span></button>).
 
 login:
   email_input:
@@ -17,9 +15,13 @@ login:
     - "a[href='/portfolio']"
     - "a[href*='/portfolio']"
     - "//a[contains(@href, '/portfolio')]"
+    - "//a[contains(., 'Portfolio')]"
+    - "//button[contains(., 'Deposit')]"
+    - "//*[contains(., 'Balance')]"
   not_logged_in_indicator:
-    - "//button[contains(., 'Log In')]"
-    - "//button[contains(., 'Sign Up')]"
+    - "//button[text()='Log In']"
+    - "//button[text()='Sign Up']"
+    - "//a[text()='Log In']"
 
 market:
   # Buy / Sell tabs at top of trade panel
@@ -40,9 +42,13 @@ market:
   yes_button:
     - "//button[contains(@class, 'trading-button')][contains(., 'Yes')]"
     - "//button[contains(@class, 'trading-button')][contains(., 'Up')]"
+    - "//button[contains(., 'Up') and (contains(., '\u00a2') or contains(., '%'))]"
+    - "//button[contains(., 'Yes') and (contains(., '\u00a2') or contains(., '%'))]"
   no_button:
     - "//button[contains(@class, 'trading-button')][contains(., 'No')]"
     - "//button[contains(@class, 'trading-button')][contains(., 'Down')]"
+    - "//button[contains(., 'Down') and (contains(., '\u00a2') or contains(., '%'))]"
+    - "//button[contains(., 'No') and (contains(., '\u00a2') or contains(., '%'))]"
   # Amount input (dollar amount, placeholder $0)
   amount_input:
     - "input[placeholder='$0']"
@@ -58,10 +64,12 @@ market:
     - "//button[contains(., '+$100')]"
   amount_max:
     - "//button[contains(., 'Max')]"
-  # Submit / confirm order — matches the main trading-button that says "Buy Up", etc.
-  # Excludes outcome buttons (which contain "¢") and unavailable buttons.
+  # Submit / confirm order - the big action button at bottom of trade panel
   submit_button:
-    - "//button[contains(@class, 'trading-button')][contains(., 'Buy') or contains(., 'Sell')][not(contains(., '¢'))]"
+    - "//button[contains(@class, 'trading-button')][contains(., 'Buy')][contains(., 'Up') or contains(., 'Down') or contains(., 'Yes') or contains(., 'No')]"
+    - "//button[contains(@class, 'trading-button')][contains(., 'Sell')][contains(., 'Up') or contains(., 'Down') or contains(., 'Yes') or contains(., 'No')]"
+    - "//button[contains(., 'Buy Up') or contains(., 'Buy Down') or contains(., 'Buy Yes') or contains(., 'Buy No')]"
+    - "//button[contains(., 'Sell Up') or contains(., 'Sell Down') or contains(., 'Sell Yes') or contains(., 'Sell No')]"
   confirm_button:
     - "//button[contains(., 'Confirm')]"
   # Order result indicators
