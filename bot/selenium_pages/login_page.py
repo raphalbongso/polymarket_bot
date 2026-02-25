@@ -13,10 +13,13 @@ class LoginPage(BasePage):
     def is_logged_in(self, timeout=10):
         """Check whether the browser session is already authenticated.
 
-        Uses three strategies:
+        Uses two strategies:
         1. Positive: look for logged-in-only elements (portfolio link, profile)
         2. Negative: if "Log In" / "Sign Up" buttons are visible, we're NOT logged in
-        3. URL check: navigate to portfolio — if not redirected to login, we're in
+
+        If neither strategy finds a definitive indicator, assumes logged in
+        (cookies are loaded). If the session is actually expired, the trade
+        will fail and recovery will kick in.
         """
         # Strategy 1: positive indicator on current page
         selectors = self._get_selectors("login", "logged_in_indicator")
@@ -35,24 +38,9 @@ class LoginPage(BasePage):
             except (TimeoutError, Exception):
                 pass
 
-        # Strategy 3: try navigating to portfolio
-        try:
-            current = self.driver.current_url
-            self.driver.get("https://polymarket.com/portfolio")
-            import time
-            time.sleep(3)
-            url = self.driver.current_url
-            if "/login" in url or "/signup" in url:
-                logger.info("Portfolio redirected to login — not authenticated")
-                self.driver.get(current)
-                return False
-            if "/portfolio" in url:
-                logger.info("Portfolio loaded — session is active")
-                return True
-        except Exception as e:
-            logger.warning(f"Portfolio check failed: {e}")
-
-        return False
+        # Both strategies inconclusive — assume logged in (cookies loaded)
+        logger.info("Login check inconclusive — assuming logged in (cookies loaded)")
+        return True
 
     def login_with_email(self, email):
         """Enter email and click continue to trigger the magic link email.

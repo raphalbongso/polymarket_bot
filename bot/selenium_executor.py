@@ -90,13 +90,37 @@ class SeleniumExecutor:
         return driver
 
     def _ensure_logged_in(self):
-        """Check session; if expired, attempt login via cookies or magic link."""
-        if self._login_page.is_logged_in():
+        """Check session; if expired, attempt login via cookies or magic link.
+
+        Handles tab/browser crashes by restarting Chrome — after restart,
+        cookies are reloaded so we're likely still authenticated.
+        """
+        try:
+            logged_in = self._login_page.is_logged_in()
+        except Exception as e:
+            if "tab crashed" in str(e).lower() or "not reachable" in str(e).lower() or "session" in str(e).lower():
+                logger.warning(f"Browser crash during login check: {e} — restarting Chrome")
+                self.restart_driver()
+                return
+            raise
+
+        if logged_in:
             logger.info("Session active (cookies valid)")
             return
 
         logger.info("Session expired — attempting re-login")
 
+        try:
+            self._attempt_login()
+        except Exception as e:
+            if "tab crashed" in str(e).lower() or "not reachable" in str(e).lower() or "session" in str(e).lower():
+                logger.warning(f"Browser crash during re-login: {e} — restarting Chrome")
+                self.restart_driver()
+            else:
+                raise
+
+    def _attempt_login(self):
+        """Run the login flow (extracted for crash-recovery wrapping)."""
         email = self._settings.selenium_email
         if not email:
             # No email configured — open login page and wait for manual login
