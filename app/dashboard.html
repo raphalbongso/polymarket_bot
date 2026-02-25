@@ -518,6 +518,22 @@ select.setting-input option {
       </div>
 
       <div class="card">
+        <div class="card-header"><span>High Confidence</span></div>
+        <div class="card-body">
+          <div class="setting-group">
+            <label class="setting-label">Threshold</label>
+            <input class="setting-input" data-key="HIGH_CONFIDENCE_THRESHOLD" type="number" min="0.90" max="0.99" step="0.01">
+            <span class="setting-hint">Minimale bid+ask prijs om te traden (0.97 = 97%)</span>
+          </div>
+          <div class="setting-group">
+            <label class="setting-label">Bet grootte (USDC)</label>
+            <input class="setting-input" data-key="FIXED_BET_USD" type="number" min="1" max="100" step="1">
+            <span class="setting-hint">Vast bedrag per trade</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-header"><span>Risico Beheer</span></div>
         <div class="card-body">
           <div class="setting-group">
