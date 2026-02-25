@@ -7,9 +7,11 @@ venv/
 *.egg-info/
 dist/
 build/
-bot.log
+*.log
+*.png
 .mypy_cache/
 .pytest_cache/
 chrome_profile/
+chrome_profile_bot/
 cookies/
 screenshots/
