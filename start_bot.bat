@@ -14,6 +14,7 @@ del /f "chrome_profile_bot\lockfile" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 echo   Bot starten...
+echo   Logs: bot_output.log
 echo.
-python scripts\run_bot.py
+powershell -Command "python scripts\run_bot.py 2>&1 | Tee-Object -FilePath bot_output.log"
 pause
