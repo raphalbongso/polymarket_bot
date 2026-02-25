@@ -7,7 +7,8 @@ echo   ========================================
 echo     POLYMARKET BOT - Selenium Mode
 echo   ========================================
 echo.
-echo   Chrome opruimen...
+echo   Oude processen opruimen...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5555.*LISTENING"') do taskkill /PID %%a /F >nul 2>&1
 taskkill /IM chromedriver.exe /F >nul 2>&1
 taskkill /IM chrome.exe /F >nul 2>&1
 del /f "chrome_profile_bot\lockfile" >nul 2>&1
