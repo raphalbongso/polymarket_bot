@@ -23,15 +23,10 @@ from data.orderbook_tracker import OrderbookTracker
 from data.order_tracker import OrderTracker
 from data.position_tracker import PositionTracker
 from data.price_history import PriceHistory
-from data.whale_tracker import WhaleTracker
 from monitoring.logger import get_logger
 from monitoring.zmq_publisher import ZMQPublisher
 from risk.risk_manager import RiskManager
-from strategies.arbitrage import ArbitrageStrategy
 from strategies.high_confidence import HighConfidenceStrategy
-from strategies.market_making import MarketMakingStrategy
-from strategies.news_driven import NewsDrivenStrategy
-from strategies.whale_following import WhaleFollowingStrategy
 
 logger = get_logger("orchestrator")
 
@@ -47,7 +42,6 @@ class Orchestrator:
         self._market_fetcher = MarketFetcher(settings)
         self._orderbook_tracker = OrderbookTracker(self._clob_client, settings)
         self._price_history = PriceHistory(settings)
-        self._whale_tracker = WhaleTracker(settings)
         self._risk_manager = RiskManager(settings)
         self._zmq_publisher = ZMQPublisher(settings.zmq_pub_port)
 
@@ -142,28 +136,7 @@ class Orchestrator:
         """Register strategies, optionally filtered by ENABLED_STRATEGIES."""
         allowed = self._settings.enabled_strategies  # empty tuple = all
 
-        self._strategies.append(ArbitrageStrategy(self._settings))
         self._strategies.append(HighConfidenceStrategy(self._settings))
-        self._strategies.append(MarketMakingStrategy(self._settings))
-
-        try:
-            self._strategies.append(NewsDrivenStrategy(self._settings))
-        except Exception as e:
-            logger.warning(f"News strategy unavailable: {e}")
-
-        try:
-            self._strategies.append(
-                WhaleFollowingStrategy(self._settings, self._whale_tracker)
-            )
-        except Exception as e:
-            logger.warning(f"Whale strategy unavailable: {e}")
-
-        # Disable strategies not in the allowed list
-        if allowed:
-            for s in self._strategies:
-                if s.name not in allowed:
-                    s.disable()
-                    logger.info(f"Strategy disabled: {s.name}")
 
     def _get_required_data_types(self):
         """Union of all enabled strategies' data requirements."""
@@ -215,12 +188,6 @@ class Orchestrator:
             trade_info["slippage_bps"] = round(fill.slippage_bps, 1)
             trade_info["realized_pnl"] = round(fill.realized_pnl, 4)
             self._zmq_publisher.publish("trade", trade_info)
-
-            if fill.filled_qty > 0 and signal.strategy_name == "market_making":
-                for s in self._strategies:
-                    if hasattr(s, "update_inventory"):
-                        delta = size_usd if signal.side == "BUY" else -size_usd
-                        s.update_inventory(signal.token_id, delta)
 
             if fill.realized_pnl != 0:
                 self._risk_manager.record_trade({
@@ -300,12 +267,6 @@ class Orchestrator:
                 "size": size_usd,
                 "price": signal.suggested_price,
             })
-
-            if signal.strategy_name == "market_making":
-                for s in self._strategies:
-                    if hasattr(s, "update_inventory"):
-                        delta = size_usd if signal.side == "BUY" else -size_usd
-                        s.update_inventory(signal.token_id, delta)
 
         except Exception as e:
             logger.error(f"Order failed: {e}", extra={"extra_data": trade_info})
@@ -403,10 +364,6 @@ class Orchestrator:
                     logger.info(
                         f"[{m['slug']}] {mins}m{secs:02d}s left"
                     )
-
-        # Fetch whale data if needed
-        if "whale_trades" in required_data:
-            self._whale_tracker.check_all_wallets()
 
         orderbooks = {}
         for market in markets[:20]:  # Limit to top 20 markets

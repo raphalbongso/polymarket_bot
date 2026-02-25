@@ -54,14 +54,9 @@ class TestOrchestrator(unittest.TestCase):
         settings = Settings(dry_run=True)
         orch = Orchestrator(settings)
 
-        # Should have at least arbitrage and market_making
         names = [s.name for s in orch._strategies]
-        self.assertIn("arbitrage", names)
-        self.assertIn("market_making", names)
-        # news_driven should be registered but disabled (no API keys)
-        news = [s for s in orch._strategies if s.name == "news_driven"]
-        if news:
-            self.assertFalse(news[0].is_enabled)
+        self.assertIn("high_confidence", names)
+        self.assertEqual(len(names), 1)
 
     @patch("bot.orchestrator.fetch_usdc_balance", return_value=1000.0)
     @patch("bot.orchestrator.create_clob_client")
