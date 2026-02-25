@@ -107,10 +107,6 @@ MAX_EQUITY_POINTS = 500
 # Known strategies with defaults
 _default_strategies = {
     "high_confidence": {"active": True, "trades": 0, "pnl": 0.0, "wins": 0},
-    "arbitrage":       {"active": False, "trades": 0, "pnl": 0.0, "wins": 0},
-    "market_making":   {"active": False, "trades": 0, "pnl": 0.0, "wins": 0},
-    "news_driven":     {"active": False, "trades": 0, "pnl": 0.0, "wins": 0},
-    "whale_following":  {"active": False, "trades": 0, "pnl": 0.0, "wins": 0},
 }
 _state["strategies"] = {k: dict(v) for k, v in _default_strategies.items()}
 
@@ -197,16 +193,6 @@ _SETTINGS_MAP = {
     "MAX_DAILY_LOSS_USDC": "DAILY_LOSS_LIMIT_USD",
     "MAX_OPEN_POSITIONS": "MAX_CONSECUTIVE_LOSSES",
     "MIN_MARKET_LIQUIDITY": "MIN_MARKET_LIQUIDITY",
-    "ARB_MIN_PROFIT_PCT": "ARB_MIN_PROFIT_PCT",
-    "ARB_SCAN_INTERVAL": "TICK_INTERVAL_SECONDS",
-    "MM_SPREAD_MARGIN": "MM_SPREAD_MARGIN",
-    "MM_ORDER_SIZE": "MM_ORDER_SIZE",
-    "MM_MAX_INVENTORY": "MM_MAX_INVENTORY",
-    "NEWS_CHECK_INTERVAL": "NEWS_CHECK_INTERVAL",
-    "NEWS_CONFIDENCE_THRESHOLD": "HIGH_CONFIDENCE_THRESHOLD",
-    "WHALE_MIN_TRADE_SIZE": "WHALE_MIN_TRADE_SIZE",
-    "WHALE_COPY_RATIO": "WHALE_COPY_RATIO",
-    "WHALE_WALLETS": "WHALE_WALLETS",
 }
 
 # Default values for settings the frontend expects
@@ -220,16 +206,6 @@ _SETTINGS_DEFAULTS = {
     "MAX_DAILY_LOSS_USDC": "100",
     "MAX_OPEN_POSITIONS": "5",
     "MIN_MARKET_LIQUIDITY": "1000",
-    "ARB_MIN_PROFIT_PCT": "1.0",
-    "ARB_SCAN_INTERVAL": "10",
-    "MM_SPREAD_MARGIN": "0.02",
-    "MM_ORDER_SIZE": "25",
-    "MM_MAX_INVENTORY": "200",
-    "NEWS_CHECK_INTERVAL": "60",
-    "NEWS_CONFIDENCE_THRESHOLD": "0.95",
-    "WHALE_MIN_TRADE_SIZE": "500",
-    "WHALE_COPY_RATIO": "0.10",
-    "WHALE_WALLETS": "",
 }
 
 
